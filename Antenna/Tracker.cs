@@ -153,6 +153,10 @@ namespace MissionPlanner.Antenna
                 tracker.PanPWMCenter = int.Parse(TXT_centerpan.Text);
                 tracker.TiltPWMCenter = int.Parse(TXT_centertilt.Text);
 
+                tracker.PanSpeed = int.Parse(TXT_panspeed.Text);
+                tracker.PanAccel = int.Parse(TXT_panaccel.Text);
+                tracker.TiltSpeed = int.Parse(TXT_tiltspeed.Text);
+                tracker.TiltAccel = int.Parse(TXT_tiltaccel.Text);
             }
             catch (Exception ex) { CustomMessageBox.Show("Bad User input " + ex.Message,"Error"); return; }
 
@@ -348,6 +352,43 @@ namespace MissionPlanner.Antenna
         private void TXT_centertilt_TextChanged(object sender, EventArgs e)
         {
 
+        }
+
+        private void TXT_panspeed_TextChanged(object sender, EventArgs e)
+        {
+            int speed;
+
+            int.TryParse(TXT_panspeed.Text, out speed);
+            if (tracker != null)
+                tracker.PanSpeed = speed;
+
+        }
+
+        private void TXT_tiltspeed_TextChanged(object sender, EventArgs e)
+        {
+            int speed;
+
+            int.TryParse(TXT_tiltspeed.Text, out speed);
+            if (tracker != null)
+                tracker.TiltSpeed = speed;
+        }
+
+        private void TXT_panaccel_TextChanged(object sender, EventArgs e)
+        {
+            int accel;
+
+            int.TryParse(TXT_panaccel.Text, out accel);
+            if (tracker != null)
+                tracker.PanAccel = accel;
+        }
+
+        private void TXT_tiltaccel_TextChanged(object sender, EventArgs e)
+        {
+            int accel;
+
+            int.TryParse(TXT_tiltaccel.Text, out accel);
+            if (tracker != null)
+                tracker.TiltAccel = accel;
         }
     }
 }
