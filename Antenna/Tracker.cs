@@ -341,7 +341,20 @@ namespace MissionPlanner.Antenna
 
         private void CMB_interface_SelectedIndexChanged(object sender, EventArgs e)
         {
-
+            if (CMB_interface.Text == interfaces.Maestro.ToString())
+            {
+                TXT_panspeed.Enabled = true;
+                TXT_panaccel.Enabled = true;
+                TXT_tiltspeed.Enabled = true;
+                TXT_tiltaccel.Enabled = true;
+            }
+            else
+            {
+                TXT_panspeed.Enabled = false;
+                TXT_panaccel.Enabled = false;
+                TXT_tiltspeed.Enabled = false;
+                TXT_tiltaccel.Enabled = false;
+            }
         }
 
         private void TXT_centerpan_TextChanged(object sender, EventArgs e)
