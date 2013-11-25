@@ -169,7 +169,16 @@ new System.Net.Security.RemoteCertificateValidationCallback((sender, certificate
 
          //   return;
 
+            //Utilities.GitHubContent.GetDirContent("diydrones", "ardupilot", "/Tools/Frame_params/");
+
+            //Utilities.GitHubContent.GetFileContent("diydrones", "ardupilot", "/Tools/Frame_params/Iris.param");
+
+            
+
+            //return;
             int fixme;
+
+  
 
            // ThemeManager.doxamlgen();
 
@@ -362,7 +371,7 @@ new System.Net.Security.RemoteCertificateValidationCallback((sender, certificate
                 }
                 catch
                 {
-                    CustomMessageBox.Show("Error sending Error report!! Youre most likerly are not on the internet");
+                    CustomMessageBox.Show("Could not send report! Typically due to lack of internet connection.");
                 }
             }
         }
