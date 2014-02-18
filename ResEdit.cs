@@ -39,11 +39,11 @@ namespace resedit
             comboBox1.DataSource = list;
         }
 
-        private void Form1_Load(object sender, EventArgs e)
+        void ProcessAssembly(Assembly thisAssembly)
         {
-            Assembly thisAssembly = Assembly.GetExecutingAssembly();
+            Console.WriteLine("Load Assembly "+ thisAssembly.FullName);
 
-            string[] test = Assembly.GetExecutingAssembly().GetManifestResourceNames();
+            string[] test = thisAssembly.GetManifestResourceNames();
 
             foreach (string file in test)
             {
@@ -70,7 +70,25 @@ namespace resedit
 
                     }
 
-                } catch {}
+                }
+                catch { }
+            }
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            Assembly thisAssembly = Assembly.GetExecutingAssembly();
+
+            ProcessAssembly(thisAssembly);
+
+            foreach (var item in MissionPlanner.Plugin.PluginLoader.Plugins) 
+            {
+                // silent fail
+                try
+                {
+                    ProcessAssembly(item.Assembly);
+                }
+                catch { }
             }
         }
 
@@ -294,6 +312,32 @@ namespace resedit
 
             CustomMessageBox.Show("Loaded Existing");
         }
+
+
+        private void BUT_clipboard_Click(object sender, EventArgs e)
+        {
+            string ApiKey = "AIzaSyDW05vWXeNIfZAN4Ter8gf4YLg8rPHZToc";
+
+            string sb = "";
+
+            foreach (DataGridViewRow row in dataGridView1.Rows)
+            {
+                string lastitem = "";
+                foreach (DataGridViewCell item in row.Cells)
+                {
+                    lastitem = item.Value.ToString();
+                    sb += '"'+item.Value.ToString()+'"' + ",";
+                }
+                //sb += new StreamReader(WebRequest.Create("https://www.googleapis.com/language/translate/v2?q=" + lastitem + "&target=zh&source=en&key=" + ApiKey).GetResponse().GetResponseStream()).ReadToEnd();
+                sb += "\n";
+            }
+
+            Clipboard.SetText(sb);
+        }
+
+        /*
+
+         */
     }
 }
 

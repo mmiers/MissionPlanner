@@ -53,6 +53,10 @@ namespace MissionPlanner.Wizard
             return 1;
         }
 
+        public bool WizardBusy()
+        {
+            return false;
+        }
         private void timer1_Tick(object sender, EventArgs e)
         {
             LBL_dist.Text = MainV2.comPort.MAV.cs.sonarrange.ToString();

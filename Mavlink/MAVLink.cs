@@ -56,8 +56,17 @@ namespace MissionPlanner
                 this.aptype = 0;
                 this.apname = 0;
                 this.recvpacketcount = 0;
+                this.VersionString = "";
+                this.SoftwareVersions = "";
+                this.SerialString = "";
             }
 
+            // all
+            public string VersionString { get; set; }
+            // px4+ only
+            public string SoftwareVersions { get; set; }
+            // px4+ only
+            public string SerialString { get; set; }
             /// <summary>
             /// the static global state of the currently connected MAV
             /// </summary>
@@ -84,6 +93,7 @@ namespace MissionPlanner
             /// </summary>
             public MAV_TYPE aptype { get; set; }
             public MAV_AUTOPILOT apname { get; set; }
+            public int Product_ID { get { if (param.ContainsKey("PRODUCT_ID")) return (int)(float)param["PRODUCT_ID"]; return -1; } }
             /// <summary>
             /// used as a snapshot of what is loaded on the ap atm. - derived from the stream
             /// </summary>
@@ -313,6 +323,9 @@ namespace MissionPlanner
             MAV.compid = 0;
             MAV.param = new Hashtable();
             MAV.packets.Initialize();
+            MAV.VersionString = "";
+            MAV.SoftwareVersions = "";
+            MAV.SerialString = "";
 
             bool hbseen = false;
 
@@ -747,6 +760,13 @@ Please check the following
             {
                 ParamListChanged(this, null);
             }
+
+            // nan check
+            foreach (string item in MAV.param.Keys)
+            {
+                if (float.IsNaN((float)MAV.param[item]))
+                    CustomMessageBox.Show("BAD PARAM, "+item+" = NAN \n Fix this NOW!!","Error");
+            }
         }
 
         void FrmProgressReporterGetParams(object sender, ProgressWorkerEventArgs e, object passdata = null)
@@ -922,6 +942,29 @@ Please check the following
                         // we hit the last param - lets escape eq total = 176 index = 0-175
                         if (par.param_index == (param_total - 1))
                             start = DateTime.MinValue;
+                    }
+                    if (buffer[5] == (byte)MAVLINK_MSG_ID.STATUSTEXT) 
+                    {
+                        var msg = MAV.packets[(byte)MAVLink.MAVLINK_MSG_ID.STATUSTEXT].ByteArrayToStructure<MAVLink.mavlink_statustext_t>(6);
+
+                        string logdata = Encoding.ASCII.GetString(msg.text);
+
+                        int ind = logdata.IndexOf('\0');
+                        if (ind != -1)
+                            logdata = logdata.Substring(0, ind);
+
+                        if (logdata.ToLower().Contains("copter")||logdata.ToLower().Contains("rover")||logdata.ToLower().Contains("plane"))
+                        {
+                            MAV.VersionString = logdata;
+                        }
+                        else if (logdata.ToLower().Contains("nuttx")) 
+                        {
+                            MAV.SoftwareVersions = logdata;
+                        }
+                        else if (logdata.ToLower().Contains("px4v2"))
+                        {
+                            MAV.SerialString = logdata;
+                        }
                     }
                     //stopwatch.Stop();
                     // Console.WriteLine("Time elapsed: {0}", stopwatch.Elapsed);
@@ -1565,70 +1608,7 @@ Please check the following
                         loc.alt = ((wp.z));
                         loc.lat = ((wp.x));
                         loc.lng = ((wp.y));
-                        /*
-                        if (MAV.cs.firmware == MainV2.Firmwares.ArduPlane)
-                        {
-                            switch (loc.id)
-                            {					// Switch to map APM command fields inot MAVLink command fields
-                                case (byte)MAV_CMD.LOITER_TURNS:
-                                case (byte)MAV_CMD.TAKEOFF:
-                                case (byte)MAV_CMD.DO_SET_HOME:
-                                    //case (byte)MAV_CMD.DO_SET_ROI:
-                                    loc.alt = (float)((wp.z));
-                                    loc.lat = (float)((wp.x));
-                                    loc.lng = (float)((wp.y));
-                                    loc.p1 = (float)wp.param1;
-                                    break;
-
-                                case (byte)MAV_CMD.CONDITION_CHANGE_ALT:
-                                    loc.lat = (int)wp.param1;
-                                    loc.p1 = 0;
-                                    break;
-
-                                case (byte)MAV_CMD.LOITER_TIME:
-                                    if (MainV2.APMFirmware == MainV2.Firmwares.ArduPlane)
-                                    {
-                                        loc.p1 = (byte)(wp.param1 / 10);	// APM loiter time is in ten second increments
-                                    }
-                                    else
-                                    {
-                                        loc.p1 = (byte)wp.param1;
-                                    }
-                                    break;
-
-                                case (byte)MAV_CMD.CONDITION_DELAY:
-                                case (byte)MAV_CMD.CONDITION_DISTANCE:
-                                    loc.lat = (int)wp.param1;
-                                    break;
-
-                                case (byte)MAV_CMD.DO_JUMP:
-                                    loc.lat = (int)wp.param2;
-                                    loc.p1 = (byte)wp.param1;
-                                    break;
-
-                                case (byte)MAV_CMD.DO_REPEAT_SERVO:
-                                    loc.lng = (int)wp.param4;
-                                    goto case (byte)MAV_CMD.DO_CHANGE_SPEED;
-                                case (byte)MAV_CMD.DO_REPEAT_RELAY:
-                                case (byte)MAV_CMD.DO_CHANGE_SPEED:
-                                    loc.lat = (int)wp.param3;
-                                    loc.alt = (int)wp.param2;
-                                    loc.p1 = (byte)wp.param1;
-                                    break;
-
-                                case (byte)MAV_CMD.DO_SET_PARAMETER:
-                                case (byte)MAV_CMD.DO_SET_RELAY:
-                                case (byte)MAV_CMD.DO_SET_SERVO:
-                                    loc.alt = (int)wp.param2;
-                                    loc.p1 = (byte)wp.param1;
-                                    break;
-
-                                case (byte)MAV_CMD.WAYPOINT:
-                                    loc.p1 = (byte)wp.param1;
-                                    break;
-                            }
-                        }
-                        */
+                       
                         log.InfoFormat("getWP {0} {1} {2} {3} {4} opt {5}", loc.id, loc.p1, loc.alt, loc.lat, loc.lng, loc.options);
 
                         break;
@@ -1762,6 +1742,24 @@ Please check the following
         }
 
         /// <summary>
+        /// Set start and finish for partial wp upload.
+        /// </summary>
+        /// <param name="startwp"></param>
+        /// <param name="endwp"></param>
+        public void setWPPartialUpdate(short startwp, short endwp)
+        {
+            mavlink_mission_write_partial_list_t req = new mavlink_mission_write_partial_list_t();
+
+            req.target_system = MAV.sysid;
+            req.target_component = MAV.compid;
+
+            req.start_index = startwp;
+            req.end_index = endwp;
+
+            generatePacket((byte)MAVLINK_MSG_ID.MISSION_WRITE_PARTIAL_LIST, req);
+        }
+
+        /// <summary>
         /// Sets wp total count
         /// </summary>
         /// <param name="wp_total"></param>
@@ -1866,7 +1864,7 @@ Please check the following
 
             while (true)
             {
-                if (!(start.AddMilliseconds(700) > DateTime.Now))
+                if (!(start.AddMilliseconds(400) > DateTime.Now))
                 {
                     if (retrys > 0)
                     {
@@ -1929,7 +1927,8 @@ Please check the following
                         else
                         {
                             log.InfoFormat("set wp fail doing " + index + " req " + ans.seq + " ACK 47 or REQ 40 : " + buffer[5] + " seq {0} ts {1} tc {2}", req.seq, req.target_system, req.target_component);
-                            //break;
+                            // resend point now
+                            start = DateTime.MinValue;
                         }
                     }
                     else
@@ -2685,7 +2684,7 @@ Please check the following
 
             while (true)
             {
-                if (!(start.AddMilliseconds(700) > DateTime.Now))
+                if (!(start.AddMilliseconds(1000) > DateTime.Now))
                 {
                     if (retrys > 0)
                     {
@@ -2819,12 +2818,12 @@ Please check the following
 
             mavlink_log_entry_t entry1 = GetLogEntry(0, ushort.MaxValue);
 
-            ans.Add(entry1);
+            log.Info("id "+entry1.id + " lln " + entry1.last_log_num + " logs " + entry1.num_logs + " size " + entry1.size);
+            //ans.Add(entry1);
 
-            for (ushort a = (ushort)((entry1.last_log_num - entry1.num_logs) + 1); a < entry1.last_log_num; a++)
+            for (ushort a = (ushort)(entry1.last_log_num - entry1.num_logs + 1); a <= entry1.last_log_num; a++)
             {
                 mavlink_log_entry_t entry = GetLogEntry(a, a);
-
                 ans.Add(entry);
             }
 
@@ -2870,9 +2869,13 @@ Please check the following
                 {
                     if (buffer[5] == (byte)MAVLINK_MSG_ID.LOG_ENTRY)
                     {
-                        giveComport = false;
+                        var ans = buffer.ByteArrayToStructure<mavlink_log_entry_t>();
 
-                        return buffer.ByteArrayToStructure<mavlink_log_entry_t>();
+                        if (ans.id >= startno && ans.id <= endno)
+                        {
+                            giveComport = false;
+                            return ans;
+                        }
                     }
                 }
             }

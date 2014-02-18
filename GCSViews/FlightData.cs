@@ -428,15 +428,7 @@ namespace MissionPlanner.GCSViews
                 }
             }
 
-            // ensure battery display is on - also set in hud if current is updated
-            if (MainV2.comPort.MAV.param.ContainsKey("BATT_MONITOR") && (float)MainV2.comPort.MAV.param["BATT_MONITOR"] != 0)
-            {
-                hud1.batteryon = true;
-            }
-            else
-            {
-                hud1.batteryon = false;
-            }
+            CheckBatteryShow();
 
             if (MainV2.getConfig("maplast_lat") != "")
             {
@@ -459,6 +451,19 @@ namespace MissionPlanner.GCSViews
             }
 
             hud1.doResize();
+        }
+
+        public void CheckBatteryShow()
+        {
+            // ensure battery display is on - also set in hud if current is updated
+            if (MainV2.comPort.MAV.param.ContainsKey("BATT_MONITOR") && (float)MainV2.comPort.MAV.param["BATT_MONITOR"] != 0)
+            {
+                hud1.batteryon = true;
+            }
+            else
+            {
+                hud1.batteryon = false;
+            }
         }
 
         public void Deactivate()
@@ -547,6 +552,12 @@ namespace MissionPlanner.GCSViews
         {
             //System.Threading.Thread.CurrentThread.CurrentUICulture = new System.Globalization.CultureInfo("en-US");
             //System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("en-US");
+
+            try
+            {
+                System.Threading.Thread.CurrentThread.Name = "FD Mainloop";
+            }
+            catch { }
 
             System.Threading.Thread.CurrentThread.IsBackground = true;
 
@@ -783,30 +794,32 @@ namespace MissionPlanner.GCSViews
 
                         double time = (Environment.TickCount - tickStart) / 1000.0;
                         if (list1item != null)
-                            list1.Add(time, (float)list1item.GetValue((object)MainV2.comPort.MAV.cs, null));
+                            list1.Add(time, ConvertToDouble(list1item.GetValue((object)MainV2.comPort.MAV.cs, null)));
                         if (list2item != null)
-                            list2.Add(time, (float)list2item.GetValue((object)MainV2.comPort.MAV.cs, null));
+                            list2.Add(time, ConvertToDouble(list2item.GetValue((object)MainV2.comPort.MAV.cs, null)));
                         if (list3item != null)
-                            list3.Add(time, (float)list3item.GetValue((object)MainV2.comPort.MAV.cs, null));
+                            list3.Add(time, ConvertToDouble(list3item.GetValue((object)MainV2.comPort.MAV.cs, null)));
                         if (list4item != null)
-                            list4.Add(time, (float)list4item.GetValue((object)MainV2.comPort.MAV.cs, null));
+                            list4.Add(time, ConvertToDouble(list4item.GetValue((object)MainV2.comPort.MAV.cs, null)));
                         if (list5item != null)
-                            list5.Add(time, (float)list5item.GetValue((object)MainV2.comPort.MAV.cs, null));
+                            list5.Add(time, ConvertToDouble(list5item.GetValue((object)MainV2.comPort.MAV.cs, null)));
                         if (list6item != null)
-                            list6.Add(time, (float)list6item.GetValue((object)MainV2.comPort.MAV.cs, null));
+                            list6.Add(time, ConvertToDouble(list6item.GetValue((object)MainV2.comPort.MAV.cs, null)));
                         if (list7item != null)
-                            list7.Add(time, (float)list7item.GetValue((object)MainV2.comPort.MAV.cs, null));
+                            list7.Add(time, ConvertToDouble(list7item.GetValue((object)MainV2.comPort.MAV.cs, null)));
                         if (list8item != null)
-                            list8.Add(time, (float)list8item.GetValue((object)MainV2.comPort.MAV.cs, null));
+                            list8.Add(time, ConvertToDouble(list8item.GetValue((object)MainV2.comPort.MAV.cs, null)));
                         if (list9item != null)
-                            list9.Add(time, (float)list9item.GetValue((object)MainV2.comPort.MAV.cs, null));
+                            list9.Add(time, ConvertToDouble(list9item.GetValue((object)MainV2.comPort.MAV.cs, null)));
                         if (list10item != null)
-                            list10.Add(time, (float)list10item.GetValue((object)MainV2.comPort.MAV.cs, null));
+                            list10.Add(time, ConvertToDouble(list10item.GetValue((object)MainV2.comPort.MAV.cs, null)));
                     }
 
                     // update map
                     if (tracklast.AddSeconds(1.2) < DateTime.Now && gMapControl1.Visible)
                     {
+                        if (threadrun == 0) { return; }
+
                         if (MainV2.config["CHK_maprotation"] != null && MainV2.config["CHK_maprotation"].ToString() == "True")
                         {
                             // dont holdinvalidation here
@@ -831,6 +844,8 @@ namespace MissionPlanner.GCSViews
                             cnt++;
                         }
 
+                        if (threadrun == 0) { return; }
+
                         // maintain route history length
                         if (route.Points.Count > int.Parse(MainV2.config["NUM_tracklength"].ToString()))
                         {
@@ -852,6 +867,8 @@ namespace MissionPlanner.GCSViews
                                 cnt++;
                             }
 
+                            if (threadrun == 0) { return; }
+
                             //route = new GMapRoute(route.Points, "track");
                             //track.Stroke = Pens.Red;
                             //route.Stroke = new Pen(Color.FromArgb(144, Color.Red));
@@ -865,6 +882,8 @@ namespace MissionPlanner.GCSViews
                             // update programed wp course
                             if (waypoints.AddSeconds(5) < DateTime.Now)
                             {
+                                if (threadrun == 0) { return; }
+
                                 //Console.WriteLine("Doing FD WP's");
                                 updateClearMissionRouteMarkers();
 
@@ -982,6 +1001,18 @@ namespace MissionPlanner.GCSViews
                                 routes.Markers.Add(new GMarkerGoogle(currentloc, GMarkerGoogleType.blue_dot) { Position = MainV2.comPort.MAV.cs.MovingBase, ToolTipText = "Moving Base", ToolTipMode = MarkerTooltipMode.OnMouseOver });
                             }
 
+                            lock(MainV2.instance.adsbPlanes) 
+                            {
+                                //routes.Markers.ForEach(x => { if (x.ToolTipText.ToString().Contains("ICAO")) routes.Markers.Remove(x); });
+
+                                foreach (MissionPlanner.Utilities.adsb.PointLatLngAltHdg plla in MainV2.instance.adsbPlanes.Values)
+                                {
+                                    // 30 seconds
+                                    if (((DateTime)MainV2.instance.adsbPlaneAge[plla.Tag]) > DateTime.Now.AddSeconds(-30))
+                                        routes.Markers.Add(new GMapMarkerADSBPlane(plla,plla.Heading) { ToolTipText = "ICAO: " + plla.Tag, ToolTipMode = MarkerTooltipMode.OnMouseOver });
+                                }
+                            }
+
                             gMapControl1.HoldInvalidation = false;
 
                             gMapControl1.Invalidate();
@@ -990,9 +1021,25 @@ namespace MissionPlanner.GCSViews
                         tracklast = DateTime.Now;
                     }
                 }
-                catch (Exception ex) { Console.WriteLine("FD Main loop exception " + ex.ToString()); }
+                catch (Exception ex) { log.Error(ex); Console.WriteLine("FD Main loop exception " + ex.ToString()); }
             }
             Console.WriteLine("FD Main loop exit");
+        }
+
+        private double ConvertToDouble(object input)
+        {
+            if (input.GetType() == typeof(float))
+            {
+                return (double)(float)input;
+            }
+            if (input.GetType() == typeof(double))
+            {
+                return (double)input;
+            }
+            //if (input.GetType() == typeof(int))
+            {
+                return (double)(int)input;
+            }
         }
 
         private void setMapBearing()
@@ -2006,7 +2053,7 @@ namespace MissionPlanner.GCSViews
                 }
                 catch { continue; }
 
-                if (!(typeCode == TypeCode.Single))
+                if (!(typeCode == TypeCode.Single || typeCode == TypeCode.Double || typeCode == TypeCode.Int32 || typeCode == TypeCode.UInt16))
                     continue;
 
                 CheckBox chk_box = new CheckBox();
@@ -2090,7 +2137,7 @@ namespace MissionPlanner.GCSViews
                 }
                 catch { continue; }
 
-                if (!(typeCode == TypeCode.Single))
+                if (!(typeCode == TypeCode.Single || typeCode == TypeCode.Double || typeCode == TypeCode.Int32 || typeCode == TypeCode.UInt16))
                     continue;
 
                 CheckBox chk_box = new CheckBox();
@@ -2552,7 +2599,7 @@ print 'Roll complete'
                 }
                 catch { continue; }
 
-                if (!(typeCode == TypeCode.Single))
+                if (!(typeCode == TypeCode.Single || typeCode == TypeCode.Double || typeCode == TypeCode.Int32 || typeCode == TypeCode.UInt16))
                     continue;
 
                 CheckBox chk_box = new CheckBox();
@@ -2877,6 +2924,12 @@ print 'Roll complete'
             BUT_edit_selected.Enabled = false;
             scriptChecker.Enabled = true;
             checkBoxRedirectOutput.Enabled = false;
+
+            while (script == null)
+            {
+            }
+
+            scriptChecker_Tick(null, null);
         }
 
         void run_selected_script()

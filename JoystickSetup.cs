@@ -137,7 +137,7 @@ namespace MissionPlanner
                     string name = (f + 1).ToString();
                     try
                     {
-                        joy.setButton(f, int.Parse(this.Controls.Find("cmbbutton" + name, false)[0].Text), this.Controls.Find("cmbaction" + name, false)[0].Text);
+                        joy.setButton(f, int.Parse(this.Controls.Find("cmbbutton" + name, false)[0].Text),Joystick.buttonfunction.ChangeMode, this.Controls.Find("cmbaction" + name, false)[0].Text);
                     }
                     catch { CustomMessageBox.Show("Set Button "+ name + " Failed"); }
                 }
@@ -252,13 +252,15 @@ namespace MissionPlanner
 
                         noButtons = joy.getNumButtons();
 
+                        noButtons = Math.Min(15, noButtons);
+
                         for (int f = 0; f < noButtons; f++)
                         {
                             string name = (f + 1).ToString();
 
                             doButtontoUI(name, 10, CMB_CH8.Bottom + 20 + f * 25);
 
-                            joy.setButton(f, int.Parse(this.Controls.Find("cmbbutton" + name, false)[0].Text), this.Controls.Find("cmbaction" + name, false)[0].Text);
+                            joy.setButton(f, int.Parse(this.Controls.Find("cmbbutton" + name, false)[0].Text), Joystick.buttonfunction.ChangeMode, this.Controls.Find("cmbaction" + name, false)[0].Text);
                         }
 
                         MainV2.joystick = joy;
@@ -457,7 +459,8 @@ namespace MissionPlanner
             if (MainV2.config["butaction" + name] != null)
                 cmbaction.Text = MainV2.config["butaction" + name].ToString();
 
-            this.Height += 25;
+            if ((y+30) > this.Height)
+                this.Height += 25;
         }
 
         private void CMB_joysticks_SelectedIndexChanged(object sender, EventArgs e)

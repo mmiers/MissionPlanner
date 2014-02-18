@@ -233,8 +233,8 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             }
             else if (selection == 5) // 3dr esc
             {
-                TXT_divider.Text = "12.02";
-                TXT_ampspervolt.Text = "17";
+                TXT_divider.Text = (12.02).ToString();
+                TXT_ampspervolt.Text = (17).ToString();
             }
 
             // enable to update
@@ -268,12 +268,22 @@ namespace MissionPlanner.GCSViews.ConfigurationView
 
         public void Activate()
         {
+            if (!MainV2.comPort.BaseStream.IsOpen)
+            {
+                this.Enabled = false;
+                return;
+            }
+
             startup = true;
             if (MainV2.comPort.MAV.param["BATT_MONITOR"] != null)
             {
-                if (MainV2.comPort.MAV.param["BATT_MONITOR"].ToString() != "0.0")
+                if ((float)MainV2.comPort.MAV.param["BATT_MONITOR"] != 0)
                 {
                     CMB_batmontype.SelectedIndex = getIndex(CMB_batmontype, (int)float.Parse(MainV2.comPort.MAV.param["BATT_MONITOR"].ToString()));
+                }
+                else
+                {
+                    CMB_batmontype.SelectedIndex = 0;
                 }
             }
 
@@ -322,6 +332,10 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             {
                 CMB_batmonsensortype.SelectedIndex = 4;
             }
+            else if (TXT_ampspervolt.Text == (17).ToString() && TXT_divider.Text == (12.02).ToString())
+            {
+                CMB_batmonsensortype.SelectedIndex = 5;
+            }
             else
             {
                 CMB_batmonsensortype.SelectedIndex = 0;
@@ -348,6 +362,10 @@ namespace MissionPlanner.GCSViews.ConfigurationView
                 else if (value == 100) // px4
                 {
                     CMB_apmversion.SelectedIndex = 3;
+                }
+                else if (value == 2)
+                { // pixhawk
+                    CMB_apmversion.SelectedIndex = 4;
                 }
             }
             else

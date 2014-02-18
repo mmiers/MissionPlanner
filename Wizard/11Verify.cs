@@ -36,6 +36,10 @@ namespace MissionPlanner.Wizard
             return 1;
         }
 
+        public bool WizardBusy()
+        {
+            return false;
+        }
         private void timer1_Tick(object sender, EventArgs e)
         {
             // GPS - every pass

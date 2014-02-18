@@ -27,6 +27,11 @@ namespace MissionPlanner.Wizard
             return 0;
         }
 
+        public bool WizardBusy()
+        {
+            return false;
+        }
+
         void setframeType(object sender)
         {
             string option = (sender as PictureBoxMouseOver).Tag.ToString();
@@ -45,6 +50,9 @@ namespace MissionPlanner.Wizard
                     break;
                 case "h":
                     MainV2.comPort.setParam("FRAME", 3);
+                    break;
+                case "y6b":
+                    MainV2.comPort.setParam("FRAME", 10);
                     break;
             }
         }
