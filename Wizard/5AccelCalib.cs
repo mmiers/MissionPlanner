@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 using MissionPlanner.Controls;
+using System.IO;
 
 namespace MissionPlanner.Wizard
 {
@@ -61,7 +62,8 @@ namespace MissionPlanner.Wizard
                 {
                     System.Threading.Thread.Sleep(10);
                     // read the message
-                    MainV2.comPort.readPacket();
+                    if (MainV2.comPort.BaseStream.BytesToRead > 4)
+                        MainV2.comPort.readPacket();
                     // update cs with the message
                     MainV2.comPort.MAV.cs.UpdateCurrentSettings(null);
                     // update user display
@@ -129,6 +131,8 @@ namespace MissionPlanner.Wizard
                     imageLabel1.Image = MissionPlanner.Properties.Resources.calibration01;
                     imageLabel1.Text = MainV2.comPort.MAV.cs.message;
                 }
+
+                imageLabel1.Refresh();
             });
         }
 
@@ -136,7 +140,11 @@ namespace MissionPlanner.Wizard
         {
             count++;
 
-            MainV2.comPort.sendPacket(new MAVLink.mavlink_command_ack_t() { command = 1, result = count });
+            try
+            {
+                MainV2.comPort.sendPacket(new MAVLink.mavlink_command_ack_t() { command = 1, result = count });
+            }
+            catch (IOException ex) { CustomMessageBox.Show("Failed to ack command.\n" + ex); Wizard.instance.Close(); }
         }
     }
 }

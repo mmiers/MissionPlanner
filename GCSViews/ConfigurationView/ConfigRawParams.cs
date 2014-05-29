@@ -10,6 +10,7 @@ using log4net;
 using MissionPlanner.Controls;
 using System.Collections.Generic;
 using System.Net;
+using System.Globalization;
 
 namespace MissionPlanner.GCSViews.ConfigurationView
 {
@@ -262,8 +263,26 @@ namespace MissionPlanner.GCSViews.ConfigurationView
                         Params[e.ColumnIndex, e.RowIndex].Value = "-1";
                 }
 
+                double min = 0;
+                double max = 0;
+
+                string value = (string)Params[e.ColumnIndex, e.RowIndex].Value;
+
+                float newvalue = float.Parse(value.Replace(',', '.'), CultureInfo.InvariantCulture);
+
+                if (ParameterMetaDataRepository.GetParameterRange(Params[Command.Index, e.RowIndex].Value.ToString(), ref min, ref max))
+                {
+                    if (newvalue > max || newvalue < min)
+                    {
+                        if (CustomMessageBox.Show(Params[Command.Index, e.RowIndex].Value.ToString()+ " value is out of range. Do you want to continue?", "Out of range", MessageBoxButtons.YesNo) == DialogResult.No)
+                        {
+                            return;
+                        }
+                    }
+                }
+
                 Params[e.ColumnIndex, e.RowIndex].Style.BackColor = Color.Green;
-                _changes[Params[0, e.RowIndex].Value] = float.Parse(((string)Params[e.ColumnIndex, e.RowIndex].Value).ToString());
+                _changes[Params[Command.Index, e.RowIndex].Value] = float.Parse(((string)Params[e.ColumnIndex, e.RowIndex].Value).ToString());
             }
             catch (Exception)
             {
@@ -272,38 +291,6 @@ namespace MissionPlanner.GCSViews.ConfigurationView
 
         
             Params.Focus();
-        }
-
-        void readToolTips()
-        {
-            string data = global::MissionPlanner.Properties.Resources.MAVParam;
-
-            string[] tips = data.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-
-            foreach (var tip in tips)
-            {
-                if (!tip.StartsWith("||"))
-                    continue;
-
-                string[] cols = tip.Split(new string[] { "||" }, 9, StringSplitOptions.None);
-
-                if (cols.Length >= 8)
-                {
-                    paramsettings param = new paramsettings();
-                    try
-                    {
-                        param.name = cols[1];
-                        param.desc = AddNewLinesForTooltip(cols[7]);
-                        param.scale = float.Parse(cols[5]);
-                        param.minvalue = float.Parse(cols[2]);
-                        param.maxvalue = float.Parse(cols[3]);
-                        param.normalvalue = float.Parse(cols[4]);
-                    }
-                    catch { }
-                    tooltips[cols[1]] = param;
-                }
-
-            }
         }
 
         // from http://stackoverflow.com/questions/2512781/winforms-big-paragraph-tooltip/2512895#2512895
@@ -375,7 +362,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
                         string units = ParameterMetaDataRepository.GetParameterMetaData(value, ParameterMetaDataConstants.Units);
 
                         Params.Rows[Params.RowCount - 1].Cells[Units.Index].Value = units;
-                        Params.Rows[Params.RowCount - 1].Cells[Options.Index].Value = range + options;
+                        Params.Rows[Params.RowCount - 1].Cells[Options.Index].Value = range + options.Replace(","," ");
                         Params.Rows[Params.RowCount - 1].Cells[Desc.Index].Value = metaDataDescription;
 
                     }
@@ -392,7 +379,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
                         //Params.Rows[Params.RowCount - 1].Cells[Value.Index].Value = float.Parse(Params.Rows[Params.RowCount - 1].Cells[RawValue.Index].Value.ToString()) / float.Parse(Params.Rows[Params.RowCount - 1].Cells[mavScale.Index].Value.ToString());
                     }
                 }
-                catch { }
+                catch (Exception ex) { log.Error(ex); }
 
             }
             //Params.Sort(Params.Columns[0], ListSortDirection.Ascending);
@@ -400,10 +387,6 @@ namespace MissionPlanner.GCSViews.ConfigurationView
 
         public void Activate()
         {
-            // read tooltips
-            if (tooltips.Count == 0)
-                readToolTips();
-
             startup = true;
 
             this.SuspendLayout();
@@ -412,6 +395,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
 
             this.ResumeLayout();
 
+            Common.MessageShowAgain("Raw Param Warning", "All values on this screen are not min/max checked. Please double check your input.\n Please use Standard/Advanced Params for the safe settings");
 
             CMB_paramfiles.Enabled = false;
             BUT_paramfileload.Enabled = false;
@@ -468,25 +452,48 @@ namespace MissionPlanner.GCSViews.ConfigurationView
         {
             string filepath = Application.StartupPath + Path.DirectorySeparatorChar + CMB_paramfiles.Text;
 
-            byte[] data = GitHubContent.GetFileContent("diydrones", "ardupilot", ((GitHubContent.FileInfo)CMB_paramfiles.SelectedValue).path);
+            try
+            {
 
-            File.WriteAllBytes(filepath, data);
+                byte[] data = GitHubContent.GetFileContent("diydrones", "ardupilot", ((GitHubContent.FileInfo)CMB_paramfiles.SelectedValue).path);
 
-            Hashtable param2 = Utilities.ParamFile.loadParamFile(filepath);
+                File.WriteAllBytes(filepath, data);
 
-            Form paramCompareForm = new ParamCompare(Params, MainV2.comPort.MAV.param, param2);
+                Hashtable param2 = Utilities.ParamFile.loadParamFile(filepath);
 
-            ThemeManager.ApplyThemeTo(paramCompareForm);
-            paramCompareForm.ShowDialog();
+                Form paramCompareForm = new ParamCompare(Params, MainV2.comPort.MAV.param, param2);
 
-            CustomMessageBox.Show("Loaded parameters, please make sure you write them!", "Loaded");
+                ThemeManager.ApplyThemeTo(paramCompareForm);
+                if (paramCompareForm.ShowDialog() == DialogResult.OK)
+                {
+                    CustomMessageBox.Show("Loaded parameters, please make sure you write them!", "Loaded");
+                }
 
-            this.Activate();
+                // no activate the user needs to click write.
+                //this.Activate();
+            }
+            catch (Exception ex) 
+            { 
+                CustomMessageBox.Show("Failed to load file.\n" + ex);
+            }
         }
 
         private void CMB_paramfiles_SelectedIndexChanged(object sender, EventArgs e)
         {
 
+        }
+
+        private void BUT_reset_params_Click(object sender, EventArgs e)
+        {
+            if (CustomMessageBox.Show("Reset all parameters to default\nAre you sure!!", "Reset", MessageBoxButtons.YesNo) == DialogResult.Yes)
+            {
+                MainV2.comPort.setParam(new string[] {"FORMAT_VERSION","SYSID_SW_MREV"}, 0);
+                System.Threading.Thread.Sleep(1000);
+                MainV2.comPort.doReboot(false);
+                MainV2.comPort.BaseStream.Close();
+
+                CustomMessageBox.Show("Your board is now rebooting, You will be required to reconnect to the autopilot.");
+            }
         }
     }
 }
