@@ -24,7 +24,11 @@ namespace MissionPlanner
         const float deg2rad = (float)(1.0 / rad2deg);
 
         static double[] ans;
-
+        
+        static float com2ofsx;
+        static float com2ofsy; 
+        static float com2ofsz;
+       
         /// <summary>
         /// Self contained process tlog and save/display offsets
         /// </summary>
@@ -64,13 +68,16 @@ namespace MissionPlanner
         }
 
 
-        public static void DoGUIMagCalib()
+        public static void DoGUIMagCalib(bool dointro = true)
         {
             ans = null;
-            filter.Clear();
-            data.Clear();
+            filtercompass1.Clear();
+            datacompass1.Clear();
+            datacompass2.Clear();
+            filtercompass2.Clear();
 
-            CustomMessageBox.Show("Please click ok and move the autopilot around all axises in a circular motion");
+            if (dointro)
+                CustomMessageBox.Show("Please click ok and move the autopilot around all axises in a circular motion");
 
             ProgressReporterSphere prd = new ProgressReporterSphere();
 
@@ -88,44 +95,85 @@ namespace MissionPlanner
 
         // filter data points to only x number per quadrant
         static int div = 20;
-        static Hashtable filter = new Hashtable();
+        static Hashtable filtercompass1 = new Hashtable();
+        static Hashtable filtercompass2 = new Hashtable();
 
         // list of x,y,z 's
-        static List<Tuple<float, float, float>> data = new List<Tuple<float, float, float>>();
-        static object locker = new object();
+        static List<Tuple<float, float, float>> datacompass1 = new List<Tuple<float, float, float>>();
 
+        // list no 2
+        static List<Tuple<float, float, float>> datacompass2 = new List<Tuple<float, float, float>>();
 
         static bool ReceviedPacket(byte[] rawpacket)
         {
-            MAVLink.mavlink_raw_imu_t packet = rawpacket.ByteArrayToStructure<MAVLink.mavlink_raw_imu_t>();
-
-
-            // filter dataset
-            string item = (int)(packet.xmag / div) + "," +
-                (int)(packet.ymag / div) + "," +
-                (int)(packet.zmag / div);
-
-            if (filter.ContainsKey(item))
+            if (rawpacket[5] == (byte)MAVLink.MAVLINK_MSG_ID.SCALED_IMU2)
             {
-                filter[item] = (int)filter[item] + 1;
+                MAVLink.mavlink_scaled_imu2_t packet = rawpacket.ByteArrayToStructure<MAVLink.mavlink_scaled_imu2_t>();
 
-                if ((int)filter[item] > 3)
-                    return false;
+                // filter dataset
+                string item = (int)(packet.xmag / div) + "," +
+                    (int)(packet.ymag / div) + "," +
+                    (int)(packet.zmag / div);
+
+                if (filtercompass2.ContainsKey(item))
+                {
+                    filtercompass2[item] = (int)filtercompass2[item] + 1;
+
+                    if ((int)filtercompass2[item] > 3)
+                        return false;
+                }
+                else
+                {
+                    filtercompass2[item] = 1;
+                }
+
+                // values - offsets are 0
+                float rawmx = packet.xmag - com2ofsx;
+                float rawmy = packet.ymag - com2ofsy;
+                float rawmz = packet.zmag - com2ofsz;
+
+                // add data
+                lock (datacompass2)
+                {
+                    datacompass2.Add(new Tuple<float, float, float>(rawmx, rawmy, rawmz));
+                }
+
+                return true;
             }
-            else
+            else if (rawpacket[5] == (byte)MAVLink.MAVLINK_MSG_ID.RAW_IMU)
             {
-                filter[item] = 1;
-            }
+                MAVLink.mavlink_raw_imu_t packet = rawpacket.ByteArrayToStructure<MAVLink.mavlink_raw_imu_t>();
 
-            // values
-            float rawmx = packet.xmag - (float)MainV2.comPort.MAV.cs.mag_ofs_x;
-            float rawmy = packet.ymag - (float)MainV2.comPort.MAV.cs.mag_ofs_y;
-            float rawmz = packet.zmag - (float)MainV2.comPort.MAV.cs.mag_ofs_z;
 
-            // add data
-            lock (locker)
-            {
-                data.Add(new Tuple<float, float, float>(rawmx, rawmy, rawmz));
+                // filter dataset
+                string item = (int)(packet.xmag / div) + "," +
+                    (int)(packet.ymag / div) + "," +
+                    (int)(packet.zmag / div);
+
+                if (filtercompass1.ContainsKey(item))
+                {
+                    filtercompass1[item] = (int)filtercompass1[item] + 1;
+
+                    if ((int)filtercompass1[item] > 3)
+                        return false;
+                }
+                else
+                {
+                    filtercompass1[item] = 1;
+                }
+
+                // values
+                float rawmx = packet.xmag - (float)MainV2.comPort.MAV.cs.mag_ofs_x;
+                float rawmy = packet.ymag - (float)MainV2.comPort.MAV.cs.mag_ofs_y;
+                float rawmz = packet.zmag - (float)MainV2.comPort.MAV.cs.mag_ofs_z;
+
+                // add data
+                lock (datacompass1)
+                {
+                    datacompass1.Add(new Tuple<float, float, float>(rawmx, rawmy, rawmz));
+                }
+
+                return true;
             }
 
             return true;
@@ -133,6 +181,14 @@ namespace MissionPlanner
 
         static void prd_DoWork(object sender, ProgressWorkerEventArgs e, object passdata = null)
         {
+            // turn learning off
+            MainV2.comPort.setParam("COMPASS_LEARN", 0);
+
+            //compass2 get mag2 offsets
+            float com2ofsx = MainV2.comPort.GetParam("COMPASS_OFS2_X");
+            float com2ofsy = MainV2.comPort.GetParam("COMPASS_OFS2_Y");
+            float com2ofsz = MainV2.comPort.GetParam("COMPASS_OFS2_Z");
+            
             // old method
             float minx = 0;
             float maxx = 0;
@@ -148,18 +204,25 @@ namespace MissionPlanner
 
             var sub = MainV2.comPort.SubscribeToPacketType(MAVLink.MAVLINK_MSG_ID.RAW_IMU, ReceviedPacket);
 
+            var sub2 = MainV2.comPort.SubscribeToPacketType(MAVLink.MAVLINK_MSG_ID.SCALED_IMU2, ReceviedPacket);
+
             string extramsg = "";
 
             ((ProgressReporterSphere)sender).sphere1.Clear();
+            ((ProgressReporterSphere)sender).sphere2.Clear();
 
             int lastcount = 0;
+            DateTime lastlsq = DateTime.MinValue;
+            DateTime lastlsq2 = DateTime.MinValue;
+
+            HIL.Vector3 centre = new HIL.Vector3();
 
             while (true)
             {
                 // slow down execution
                 System.Threading.Thread.Sleep(20);
 
-                ((ProgressReporterDialogue)sender).UpdateProgressAndStatus(-1, "Got " + data.Count + " Samples " + extramsg);
+                ((ProgressReporterDialogue)sender).UpdateProgressAndStatus(-1, "Got " + datacompass1.Count + " Samples " + extramsg);
 
                 if (e.CancelRequested)
                 {
@@ -172,21 +235,22 @@ namespace MissionPlanner
                     break;
                 }
 
-             
-                    if (data.Count == 0)
-                        continue;
+                if (datacompass1.Count == 0)
+                    continue;
                 
-
                 // dont use dup data
-                if (lastcount == data.Count)
+                if (lastcount == datacompass1.Count)
                     continue;
 
-                lastcount = data.Count;
+                lastcount = datacompass1.Count;
 
-                float rawmx = data[data.Count - 1].Item1;
-                float rawmy = data[data.Count - 1].Item2;
-                float rawmz = data[data.Count - 1].Item3;
+                float rawmx = datacompass1[datacompass1.Count - 1].Item1;
+                float rawmy = datacompass1[datacompass1.Count - 1].Item2;
+                float rawmz = datacompass1[datacompass1.Count - 1].Item3;
 
+                float raw2mx = datacompass2[datacompass2.Count - 1].Item1;
+                float raw2my = datacompass2[datacompass2.Count - 1].Item2;
+                float raw2mz = datacompass2[datacompass2.Count - 1].Item3;
 
                 // for old method
                 setMinorMax(rawmx, ref minx, ref maxx);
@@ -194,23 +258,66 @@ namespace MissionPlanner
                 setMinorMax(rawmz, ref minz, ref maxz);
 
                 // get the current estimated centerpoint
-                HIL.Vector3 centre = new HIL.Vector3((float)-((maxx + minx) / 2), (float)-((maxy + miny) / 2), (float)-((maxz + minz) / 2));
+                //new HIL.Vector3((float)-((maxx + minx) / 2), (float)-((maxy + miny) / 2), (float)-((maxz + minz) / 2));
+
+                // run lsq every seconds when more than 100 datapoints
+                if (datacompass1.Count > 100 && lastlsq.Second != DateTime.Now.Second)
+                {
+                    lastlsq = DateTime.Now;
+                    lock (datacompass1)
+                    {
+                        var lsq = MagCalib.LeastSq(datacompass1, false);
+                        // simple validation
+                        if (Math.Abs(lsq[0]) < 999)
+                        {
+                            centre = new HIL.Vector3(lsq[0], lsq[1], lsq[2]);
+                            log.Info("new centre " + centre.ToString());
+
+                            ((ProgressReporterSphere)sender).sphere1.CenterPoint = new OpenTK.Vector3((float)centre.x, (float)centre.y, (float)centre.z);
+                        }
+                    }
+                }
+
+                // run lsq every seconds when more than 100 datapoints
+                if (datacompass2.Count > 100 && lastlsq2.Second != DateTime.Now.Second)
+                {
+                    lastlsq2 = DateTime.Now;
+                    lock (datacompass2)
+                    {
+                        var lsq = MagCalib.LeastSq(datacompass2, false);
+                        // simple validation
+                        if (Math.Abs(lsq[0]) < 999)
+                        {
+                            HIL.Vector3 centre2 = new HIL.Vector3(lsq[0], lsq[1], lsq[2]);
+                            log.Info("new centre2 " + centre2.ToString());
+
+                            ((ProgressReporterSphere)sender).sphere2.CenterPoint = new OpenTK.Vector3((float)centre2.x, (float)centre2.y, (float)centre2.z);
+                        }
+                    }
+                }
+
                 HIL.Vector3 point;
 
                 // add to sphere with center correction
                 point = new HIL.Vector3(rawmx, rawmy, rawmz) + centre;
-                ((ProgressReporterSphere)sender).sphere1.AddPoint(new OpenTK.Vector3((float)point.x, (float)point.y, (float)point.z));
+                ((ProgressReporterSphere)sender).sphere1.AddPoint(new OpenTK.Vector3(rawmx, rawmy, rawmz));
+                ((ProgressReporterSphere)sender).sphere1.AimClear();
+
+                ((ProgressReporterSphere)sender).sphere2.AddPoint(new OpenTK.Vector3(raw2mx, raw2my, raw2mz));
+                ((ProgressReporterSphere)sender).sphere2.AimClear();
+
 
                 //find the mean radius                    
                 float radius = 0;
-                for (int i = 0; i < data.Count; i++)
+                for (int i = 0; i < datacompass1.Count; i++)
                 {
-                    point = new HIL.Vector3(data[i].Item1, data[i].Item2, data[i].Item3);
+                    point = new HIL.Vector3(datacompass1[i].Item1, datacompass1[i].Item2, datacompass1[i].Item3);
                     radius += (float)(point + centre).length();
                 }
-                radius /= data.Count;
+                radius /= datacompass1.Count;
 
                 //test that we can find one point near a set of points all around the sphere surface
+                string displayresult = "";
                 int factor = 4; // 4 point check 16 points
                 float max_distance = radius / 3; //pretty generouse
                 for (int j = 0; j < factor; j++)
@@ -226,12 +333,14 @@ namespace MissionPlanner
                             (float)(Math.Sin(theta) * Math.Sin(phi) * radius),
                             (float)(Math.Cos(theta) * radius)) - centre;
 
+                        
+
                         //log.DebugFormat("magcalib check - {0} {1} dist {2}", theta * rad2deg, phi * rad2deg, max_distance);
 
                         bool found = false;
-                        for (int k = 0; k < data.Count; k++)
+                        for (int k = 0; k < datacompass1.Count; k++)
                         {
-                            point = new HIL.Vector3(data[k].Item1, data[k].Item2, data[k].Item3);
+                            point = new HIL.Vector3(datacompass1[k].Item1, datacompass1[k].Item2, datacompass1[k].Item3);
                             double d = (point_sphere - point).length();
                             if (d < max_distance)
                             {
@@ -241,22 +350,18 @@ namespace MissionPlanner
                         }
                         if (!found)
                         {
-                            extramsg = "more data needed";
-                            //e.ErrorMessage = "Data missing for some directions";
-                            //ans = null;
-                            //return;
-                            j = factor;
+                            displayresult = "more data needed " + (theta * rad2deg).ToString("0") + " " + (phi * rad2deg).ToString("0");
+                            ((ProgressReporterSphere)sender).sphere1.AimFor(new OpenTK.Vector3((float)point_sphere.x, (float)point_sphere.y, (float)point_sphere.z));
+                            //j = factor;
                             break;
-                        }
-                        else
-                        {
-                            extramsg = "";
                         }
                     }
                 }
+                extramsg = displayresult;
             }
 
             MainV2.comPort.UnSubscribeToPacketType(sub);
+            MainV2.comPort.UnSubscribeToPacketType(sub2);
 
             if (minx > 0 && maxx > 0 || minx < 0 && maxx < 0 || miny > 0 && maxy > 0 || miny < 0 && maxy < 0 || minz > 0 && maxz > 0 || minz < 0 && maxz < 0)
             {
@@ -281,9 +386,10 @@ namespace MissionPlanner
             }
 
             // remove outlyers
-            RemoveOutliers(ref data);
+            RemoveOutliers(ref datacompass1);
+            RemoveOutliers(ref datacompass2);
 
-            if (data.Count < 10)
+            if (datacompass1.Count < 10)
             {
                 e.ErrorMessage = "Log does not contain enough data";
                 ans = null;
@@ -297,7 +403,9 @@ namespace MissionPlanner
                 ellipsoid = true;
             }
 
-            ans = MagCalib.LeastSq(data, ellipsoid);
+            ans = MagCalib.LeastSq(datacompass1, ellipsoid);
+
+            double[] ans2 = MagCalib.LeastSq(datacompass2, ellipsoid);
         }
 
         static void RemoveOutliers(ref List<Tuple<float, float, float>> data)

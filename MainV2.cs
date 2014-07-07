@@ -132,11 +132,6 @@ namespace MissionPlanner
         public Hashtable adsbPlaneAge = new Hashtable();
 
         /// <summary>
-        /// Store points of interest
-        /// </summary>
-        public static ObservableCollection<PointLatLngAlt> POIs = new ObservableCollection<PointLatLngAlt>();
-
-        /// <summary>
         /// Comport name
         /// </summary>
         public static string comPortName = "";
@@ -280,8 +275,6 @@ namespace MissionPlanner
             MyView = new MainSwitcher(this);
 
             View = MyView;
-
-            POIs.CollectionChanged += POIs_CollectionChanged;
 
             AdvancedChanged += updateAdvanced;
 
@@ -526,6 +519,10 @@ namespace MissionPlanner
             if (config["logdirectory"] != null)
                 MainV2.LogDir = config["logdirectory"].ToString();
 
+            // create log dir if it doesnt exist
+            if (!Directory.Exists(MainV2.LogDir))
+                Directory.CreateDirectory(MainV2.LogDir);
+
             //System.Threading.Thread.Sleep(2000);
 
             // make sure new enough .net framework is installed
@@ -571,6 +568,7 @@ namespace MissionPlanner
 
             // setup adsb
             Utilities.adsb.UpdatePlanePosition += adsb_UpdatePlanePosition;
+
             new Utilities.adsb();
 
             //int fixmenextrelease;
@@ -598,11 +596,6 @@ namespace MissionPlanner
                 log.Info("Loaded " + Utilities.Airports.GetAirportCount + " airports");
             }
             catch { }
-        }
-
-        void POIs_CollectionChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
-        {
-
         }
 
         void MenuCustom_Click(object sender, EventArgs e)
@@ -644,6 +637,7 @@ namespace MissionPlanner
 
         private void ResetConnectionStats()
         {
+            log.Info("Reset connection stats");
             // If the form has been closed, or never shown before, we need do nothing, as 
             // connection stats will be reset when shown
             if (this.connectionStatsForm != null && connectionStatsForm.Visible)
@@ -749,6 +743,8 @@ namespace MissionPlanner
         {
             comPort.giveComport = false;
 
+            log.Info("MenuConnect Start");
+
             // sanity check
             if (comPort.BaseStream.IsOpen && MainV2.comPort.MAV.cs.groundspeed > 4)
             {
@@ -760,6 +756,7 @@ namespace MissionPlanner
 
             try
             {
+                log.Info("Cleanup last logfiles");
                 // cleanup from any previous sessions
                 if (comPort.logfile != null)
                     comPort.logfile.Close();
@@ -778,6 +775,7 @@ namespace MissionPlanner
             // decide if this is a connect or disconnect
             if (comPort.BaseStream.IsOpen)
             {
+                log.Info("We are disconnecting");
                 try
                 {
                     if (speechEngine != null) // cancel all pending speech
@@ -829,6 +827,7 @@ namespace MissionPlanner
             }
             else
             {
+                log.Info("We are connecting");
                 switch (_connectionControl.CMB_serialport.Text)
                 {
                     case "TCP":
@@ -882,22 +881,31 @@ namespace MissionPlanner
                         _connectionControl.CMB_baudrate.Text = Comms.CommsSerialScan.portinterface.BaudRate.ToString();
                     }
 
+                    log.Info("Set Portname");
                     // set port, then options
                     comPort.BaseStream.PortName = _connectionControl.CMB_serialport.Text;
 
+                    log.Info("Set Baudrate");
                     try
                     {
                         comPort.BaseStream.BaudRate = int.Parse(_connectionControl.CMB_baudrate.Text);
                     }
-                    catch (Exception exp) { log.Error(exp); }
+                    catch (Exception exp) {
+                        log.Error(exp); 
+                    }
 
-                    // false here
-                    comPort.BaseStream.DtrEnable = false;
-                    comPort.BaseStream.RtsEnable = false;
+                    // apm reset preset
+                    if (config["CHK_resetapmonconnect"] == null || bool.Parse(config["CHK_resetapmonconnect"].ToString()) == true)
+                    {
+                        log.Info("set dtr rts to false");
+                        comPort.BaseStream.DtrEnable = false;
+                        comPort.BaseStream.RtsEnable = false;
+                    }
 
                     // prevent serialreader from doing anything
                     comPort.giveComport = true;
 
+                    log.Info("About to do dtr if needed");
                     // reset on connect logic.
                     if (config["CHK_resetapmonconnect"] == null || bool.Parse(config["CHK_resetapmonconnect"].ToString()) == true)
                         comPort.BaseStream.toggleDTR();
@@ -1064,9 +1072,147 @@ namespace MissionPlanner
             catch { }
         }
 
-        private void MainV2_FormClosed(object sender, FormClosedEventArgs e)
+        
+
+        /// <summary>
+        /// overriding the OnCLosing is a bit cleaner than handling the event, since it 
+        /// is this object.
+        /// 
+        /// This happens before FormClosed
+        /// </summary>
+        /// <param name="e"></param>
+        protected override void OnClosing(CancelEventArgs e)
         {
+            base.OnClosing(e);
+
+            log.Info("MainV2_FormClosing");
+
+            config["MainHeight"] = this.Height;
+            config["MainWidth"] = this.Width;
+            config["MainMaximised"] = this.WindowState.ToString();
+
+            config["MainLocX"] = this.Location.X.ToString();
+            config["MainLocY"] = this.Location.Y.ToString();
+
+            try
+            {
+                comPort.logreadmode = false;
+                if (comPort.logfile != null)
+                    comPort.logfile.Close();
+
+                if (comPort.rawlogfile != null)
+                    comPort.rawlogfile.Close();
+
+                comPort.logfile = null;
+                comPort.rawlogfile = null;
+            }
+            catch { }
+
+            Utilities.adsb.Stop();
+
+            Warnings.WarningEngine.Stop();
+
+            // shutdown threads
+            GCSViews.FlightData.threadrun = 0;
+
+            log.Info("closing pluginthread");
+
+            pluginthreadrun = false;
+
+            PluginThreadrunner.WaitOne();
+
+            log.Info("closing serialthread");
+
+            // shutdown local thread
+            serialThread = false;
+
+          //  SerialThreadrunner.WaitOne();
+
+            joystickthreadrun = false;
+
+            log.Info("sorting tlogs");
+            try
+            {
+                System.Threading.ThreadPool.QueueUserWorkItem((WaitCallback)delegate
+                {
+                    try
+                    {
+                        MissionPlanner.Log.LogSort.SortLogs(Directory.GetFiles(MainV2.LogDir, "*.tlog"));
+                    }
+                    catch { }
+                }
+                );
+            }
+            catch { }
+
+            log.Info("closing MyView");
+
+            // close all tabs
+            MyView.Dispose();
+
+            log.Info("closing fd");
+            try
+            {
+                FlightData.Dispose();
+            }
+            catch { }
+            log.Info("closing fp");
+            try
+            {
+                FlightPlanner.Dispose();
+            }
+            catch { }
+            log.Info("closing sim");
+            try
+            {
+                Simulation.Dispose();
+            }
+            catch { }
+
+            try
+            {
+                if (comPort.BaseStream.IsOpen)
+                    comPort.Close();
+            }
+            catch { } // i get alot of these errors, the port is still open, but not valid - user has unpluged usb
+
+            log.Info("save config");
+            // save config
+            xmlconfig(true);
+
+            httpserver.run = false;
+            httpserver.tcpClientConnected.Set();
+
+            Console.WriteLine(httpthread.IsAlive);
+            Console.WriteLine(joystickthread.IsAlive);
+            Console.WriteLine(serialreaderthread.IsAlive);
+            Console.WriteLine(pluginthread.IsAlive);
+
+            log.Info("MainV2_FormClosing done");
+
+            if (MONO)
+                this.Dispose();
+        }
+
+
+        /// <summary>
+        /// this happens after FormClosing...
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            base.OnFormClosed(e);
+            
             Console.WriteLine("MainV2_FormClosed");
+
+            if (joystick != null)
+            {
+                while (!joysendThreadExited)
+                    Thread.Sleep(10);
+
+                joystick.Dispose();//proper clean up of joystick.
+            }
         }
 
 
@@ -1176,6 +1322,11 @@ namespace MissionPlanner
         }
 
         /// <summary>
+        /// needs to be true by default so that exits properly if no joystick used.
+        /// </summary>
+        volatile private bool joysendThreadExited = true;
+
+        /// <summary>
         /// thread used to send joystick packets to the MAV
         /// </summary>
         private void joysticksend()
@@ -1189,6 +1340,8 @@ namespace MissionPlanner
 
             while (joystickthreadrun)
             {
+                joysendThreadExited = false;
+                //so we know this thread is stil alive.           
                 try
                 {
                     if (MONO)
@@ -1274,6 +1427,7 @@ namespace MissionPlanner
 
                 } // cant fall out
             }
+            joysendThreadExited = true;//so we know this thread exited.    
         }
 
         /// <summary>
@@ -1716,7 +1870,7 @@ namespace MissionPlanner
             SerialThreadrunner.Set();
         }
 
-        private void MainV2_Load(object sender, EventArgs e)
+        protected override void OnLoad(EventArgs e)
         {
             // check if its defined, and force to show it if not known about
             if (config["menu_autohide"] == null)
@@ -1745,13 +1899,13 @@ namespace MissionPlanner
 
             if (Program.Logo != null && Program.vvvvz)
             {
-                MenuFlightPlanner_Click(sender, e);
-                MainMenu_ItemClicked(sender, new ToolStripItemClickedEventArgs(MenuFlightPlanner));
+                MenuFlightPlanner_Click(this, e);
+                MainMenu_ItemClicked(this, new ToolStripItemClickedEventArgs(MenuFlightPlanner));
             }
             else
             {
-                MenuFlightData_Click(sender, e);
-                MainMenu_ItemClicked(sender, new ToolStripItemClickedEventArgs(MenuFlightData));
+                MenuFlightData_Click(this, e);
+                MainMenu_ItemClicked(this, new ToolStripItemClickedEventArgs(MenuFlightData));
             }
 
             this.ResumeLayout();
@@ -1804,6 +1958,8 @@ namespace MissionPlanner
             pluginthread.Start();
 
             ThreadPool.QueueUserWorkItem(BGLoadAirports);
+
+            ThreadPool.QueueUserWorkItem(BGCreateMaps);
 
             Program.Splash.Close();
 
@@ -1902,6 +2058,11 @@ namespace MissionPlanner
                 config["newuser"] = DateTime.Now.ToShortDateString();
             }
             */
+        }
+
+        private void BGCreateMaps(object state)
+        {
+            Log.LogMap.MapLogs(Directory.GetFiles(MainV2.LogDir, "*.tlog", SearchOption.AllDirectories));
         }
 
         private void checkupdate(object stuff)
@@ -2093,116 +2254,6 @@ namespace MissionPlanner
             }
         }
 
-        private void MainV2_FormClosing(object sender, FormClosingEventArgs e)
-        {
-            log.Info("MainV2_FormClosing");
-
-            config["MainHeight"] = this.Height;
-            config["MainWidth"] = this.Width;
-            config["MainMaximised"] = this.WindowState.ToString();
-
-            config["MainLocX"] = this.Location.X.ToString();
-            config["MainLocY"] = this.Location.Y.ToString();
-
-            try
-            {
-                comPort.logreadmode = false;
-                if (comPort.logfile != null)
-                    comPort.logfile.Close();
-
-                if (comPort.rawlogfile != null)
-                    comPort.rawlogfile.Close();
-
-                comPort.logfile = null;
-                comPort.rawlogfile = null;
-            }
-            catch { }
-
-            Utilities.adsb.Stop();
-
-            Warnings.WarningEngine.Stop();
-
-            // shutdown threads
-            GCSViews.FlightData.threadrun = 0;
-
-            log.Info("closing pluginthread");
-
-            pluginthreadrun = false;
-
-            PluginThreadrunner.WaitOne();
-
-            log.Info("closing serialthread");
-
-            // shutdown local thread
-            serialThread = false;
-
-          //  SerialThreadrunner.WaitOne();
-
-            joystickthreadrun = false;
-
-            log.Info("sorting tlogs");
-            try
-            {
-                System.Threading.ThreadPool.QueueUserWorkItem((WaitCallback)delegate
-                {
-                    try
-                    {
-                        MissionPlanner.Log.LogSort.SortLogs(Directory.GetFiles(MainV2.LogDir, "*.tlog"));
-                    }
-                    catch { }
-                }
-                );
-            }
-            catch { }
-
-            log.Info("closing MyView");
-
-            // close all tabs
-            MyView.Dispose();
-
-            log.Info("closing fd");
-            try
-            {
-                FlightData.Dispose();
-            }
-            catch { }
-            log.Info("closing fp");
-            try
-            {
-                FlightPlanner.Dispose();
-            }
-            catch { }
-            log.Info("closing sim");
-            try
-            {
-                Simulation.Dispose();
-            }
-            catch { }
-
-            try
-            {
-                if (comPort.BaseStream.IsOpen)
-                    comPort.Close();
-            }
-            catch { } // i get alot of these errors, the port is still open, but not valid - user has unpluged usb
-
-            log.Info("save config");
-            // save config
-            xmlconfig(true);
-
-            httpserver.run = false;
-            httpserver.tcpClientConnected.Set();
-
-            Console.WriteLine(httpthread.IsAlive);
-            Console.WriteLine(joystickthread.IsAlive);
-            Console.WriteLine(serialreaderthread.IsAlive);
-            Console.WriteLine(pluginthread.IsAlive);
-
-            log.Info("MainV2_FormClosing done");
-
-            if (MONO)
-                this.Dispose();
-        }
 
         public static string getConfig(string paramname)
         {
@@ -2570,8 +2621,6 @@ namespace MissionPlanner
         private void readonlyToolStripMenuItem_Click(object sender, EventArgs e)
         {
             MainV2.comPort.ReadOnly = readonlyToolStripMenuItem.Checked;
-        }
-
-     
+        }    
     }
 }
