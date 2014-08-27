@@ -110,6 +110,24 @@ namespace MissionPlanner
 
         public static bool ShowAirports { get; set; }
 
+        private static Utilities.adsb _adsb;
+        public static bool EnableADSB
+        {
+            get { return _adsb != null; }
+            set
+            {
+                if (value == true)
+                {
+                    _adsb = new Utilities.adsb();
+                }
+                else
+                {
+                    Utilities.adsb.Stop();
+                    _adsb = null;
+                }
+            }
+        }
+
         public static event EventHandler AdvancedChanged;
 
         /// <summary>
@@ -220,7 +238,8 @@ namespace MissionPlanner
             ArduCopter2,
             //ArduHeli,
             ArduRover,
-            Ateryx
+            Ateryx,
+            ArduTracker
         }
 
         DateTime connectButtonUpdate = DateTime.Now;
@@ -262,6 +281,9 @@ namespace MissionPlanner
 
             ShowAirports = true;
 
+            // setup adsb
+            Utilities.adsb.UpdatePlanePosition += adsb_UpdatePlanePosition;
+
             Form splash = Program.Splash;
 
             splash.Refresh();
@@ -277,6 +299,9 @@ namespace MissionPlanner
             View = MyView;
 
             AdvancedChanged += updateAdvanced;
+
+            //startup console
+            TCPConsole.Write((byte)'S');
 
             // full screen
             //this.TopMost = true;
@@ -352,6 +377,16 @@ namespace MissionPlanner
 
             MissionPlanner.Utilities.Tracking.cid = new Guid(MainV2.config["guid"].ToString());
 
+            // setup guids for droneshare
+            if (!MainV2.config.ContainsKey("plane_guid"))
+                MainV2.config["plane_guid"] = Guid.NewGuid().ToString();
+
+            if (!MainV2.config.ContainsKey("copter_guid"))
+                MainV2.config["copter_guid"] = Guid.NewGuid().ToString();
+
+            if (!MainV2.config.ContainsKey("rover_guid"))
+                MainV2.config["rover_guid"] = Guid.NewGuid().ToString();
+
             if (config.ContainsKey("language") && !string.IsNullOrEmpty((string)config["language"]))
             {
                 changelanguage(CultureInfoEx.GetCultureInfo((string)config["language"]));
@@ -394,6 +429,11 @@ namespace MissionPlanner
             if (MainV2.config["showairports"] != null)
             {
                 MainV2.ShowAirports = bool.Parse(config["showairports"].ToString());
+            }
+
+            if (MainV2.config["enableadsb"] != null)
+            {
+                MainV2.EnableADSB = bool.Parse(config["enableadsb"].ToString());
             }
 
             // load this before the other screens get loaded
@@ -566,11 +606,6 @@ namespace MissionPlanner
 
             Comports.Add(comPort);
 
-            // setup adsb
-            Utilities.adsb.UpdatePlanePosition += adsb_UpdatePlanePosition;
-
-            new Utilities.adsb();
-
             //int fixmenextrelease;
             // if (MainV2.getConfig("fixparams") == "")
             {
@@ -591,7 +626,7 @@ namespace MissionPlanner
 
                 Utilities.Airports.checkdups = true;
 
-                Utilities.Airports.ReadOpenflights(Application.StartupPath + Path.DirectorySeparatorChar + "airports.dat");
+                //Utilities.Airports.ReadOpenflights(Application.StartupPath + Path.DirectorySeparatorChar + "airports.dat");
 
                 log.Info("Loaded " + Utilities.Airports.GetAirportCount + " airports");
             }
@@ -894,21 +929,19 @@ namespace MissionPlanner
                         log.Error(exp); 
                     }
 
-                    // apm reset preset
-                    if (config["CHK_resetapmonconnect"] == null || bool.Parse(config["CHK_resetapmonconnect"].ToString()) == true)
-                    {
-                        log.Info("set dtr rts to false");
-                        comPort.BaseStream.DtrEnable = false;
-                        comPort.BaseStream.RtsEnable = false;
-                    }
-
                     // prevent serialreader from doing anything
                     comPort.giveComport = true;
 
                     log.Info("About to do dtr if needed");
                     // reset on connect logic.
                     if (config["CHK_resetapmonconnect"] == null || bool.Parse(config["CHK_resetapmonconnect"].ToString()) == true)
+                    {
+                        log.Info("set dtr rts to false");
+                        comPort.BaseStream.DtrEnable = false;
+                        comPort.BaseStream.RtsEnable = false;
+
                         comPort.BaseStream.toggleDTR();
+                    }
 
                     comPort.giveComport = false;
 
@@ -931,8 +964,18 @@ namespace MissionPlanner
                     comPort.Open(true);
 
                     if (!comPort.BaseStream.IsOpen)
-                        throw new Exception("Not connected");
-
+                    {
+                        log.Info("comport is closed. existing connect");
+                        try
+                        {
+                            _connectionControl.IsConnected(false);
+                            UpdateConnectIcon();
+                            comPort.Close();
+                        }
+                        catch { }
+                        return;
+                    }
+                        
                     // detect firmware we are conected to.
                         if (comPort.MAV.cs.firmware == Firmwares.ArduCopter2)
                         {
@@ -1112,23 +1155,28 @@ namespace MissionPlanner
 
             Warnings.WarningEngine.Stop();
 
-            // shutdown threads
-            GCSViews.FlightData.threadrun = 0;
-
             log.Info("closing pluginthread");
 
             pluginthreadrun = false;
 
-            PluginThreadrunner.WaitOne();
+            pluginthread.Join();
 
             log.Info("closing serialthread");
 
-            // shutdown local thread
             serialThread = false;
 
-          //  SerialThreadrunner.WaitOne();
+            serialreaderthread.Join();
+
+            log.Info("closing joystickthread");
 
             joystickthreadrun = false;
+
+            joystickthread.Join();
+
+            log.Info("closing httpthread");
+
+            // if we are waiting on a socket we need to force an abort
+            httpserver.Stop();
 
             log.Info("sorting tlogs");
             try
@@ -1179,9 +1227,6 @@ namespace MissionPlanner
             log.Info("save config");
             // save config
             xmlconfig(true);
-
-            httpserver.run = false;
-            httpserver.tcpClientConnected.Set();
 
             Console.WriteLine(httpthread.IsAlive);
             Console.WriteLine(joystickthread.IsAlive);
@@ -1408,7 +1453,10 @@ namespace MissionPlanner
                                 */
                                 //                                Console.WriteLine(DateTime.Now.Millisecond + " {0} {1} {2} {3} {4}", rc.chan1_raw, rc.chan2_raw, rc.chan3_raw, rc.chan4_raw,rate);
 
-                                Console.WriteLine("Joystick btw " + comPort.BaseStream.BytesToWrite);
+                                //Console.WriteLine("Joystick btw " + comPort.BaseStream.BytesToWrite);
+
+                                if (!comPort.BaseStream.IsOpen)
+                                    continue;
 
                                 if (comPort.BaseStream.BytesToWrite < 50)
                                 {
@@ -1635,7 +1683,7 @@ namespace MissionPlanner
                     // speech for airspeed alerts
                     if (speechEnable && speechEngine != null && (DateTime.Now - speechlowspeedtime).TotalSeconds > 10 && (MainV2.comPort.logreadmode || comPort.BaseStream.IsOpen))
                     {
-                        if (MainV2.getConfig("speechlowspeedenabled") == "True")
+                        if (MainV2.getConfig("speechlowspeedenabled") == "True" && MainV2.comPort.MAV.cs.armed)
                         {
                             float warngroundspeed = 0;
                             float.TryParse(MainV2.getConfig("speechlowgroundspeedtrigger"), out warngroundspeed);
@@ -1675,7 +1723,7 @@ namespace MissionPlanner
                             int todo; // need a reset method
                             altwarningmax = (int)Math.Max(MainV2.comPort.MAV.cs.alt, altwarningmax);
 
-                            if (MainV2.getConfig("speechaltenabled") == "True" && MainV2.comPort.MAV.cs.alt != 0.00 && (MainV2.comPort.MAV.cs.alt <= warnalt))
+                            if (MainV2.getConfig("speechaltenabled") == "True" && MainV2.comPort.MAV.cs.alt != 0.00 && (MainV2.comPort.MAV.cs.alt <= warnalt) && MainV2.comPort.MAV.cs.armed)
                             {
                                 if (altwarningmax > warnalt)
                                 {
@@ -1698,18 +1746,18 @@ namespace MissionPlanner
                         catch { }
                     }
 
-                        // attenuate the link qualty over time
-                        if ((DateTime.Now - comPort.lastvalidpacket).TotalSeconds >= 1)
+                    // attenuate the link qualty over time
+                    if ((DateTime.Now - comPort.lastvalidpacket).TotalSeconds >= 1)
+                    {
+                        if (linkqualitytime.Second != DateTime.Now.Second)
                         {
-                            if (linkqualitytime.Second != DateTime.Now.Second)
-                            {
-                                MainV2.comPort.MAV.cs.linkqualitygcs = (ushort)(MainV2.comPort.MAV.cs.linkqualitygcs * 0.8f);
-                                linkqualitytime = DateTime.Now;
+                            MainV2.comPort.MAV.cs.linkqualitygcs = (ushort)(MainV2.comPort.MAV.cs.linkqualitygcs * 0.8f);
+                            linkqualitytime = DateTime.Now;
 
-                                // force redraw is no other packets are being read
-                                GCSViews.FlightData.myhud.Invalidate();
-                            }
+                            // force redraw is no other packets are being read
+                            GCSViews.FlightData.myhud.Invalidate();
                         }
+                    }
 
                     // data loss warning - wait min of 10 seconds, ignore first 30 seconds of connect, repeat at 5 seconds interval
                     if ((DateTime.Now - comPort.lastvalidpacket).TotalSeconds > 10
@@ -2228,6 +2276,8 @@ namespace MissionPlanner
 
         public void changelanguage(CultureInfo ci)
         {
+            log.Info("change lang to " + ci.ToString() + " current " + Thread.CurrentThread.CurrentUICulture.ToString());
+
             if (ci != null && !Thread.CurrentThread.CurrentUICulture.Equals(ci))
             {
                 Thread.CurrentThread.CurrentUICulture = ci;

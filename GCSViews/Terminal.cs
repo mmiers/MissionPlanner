@@ -184,14 +184,14 @@ namespace MissionPlanner.GCSViews
 
             try
             {
-                if (comPort.IsOpen)
+                if (comPort != null && comPort.IsOpen)
                 {
                     comPort.Close();
                 }
             }
             catch { } // Exception System.IO.IOException: The specified port does not exist.
 
-            System.Threading.Thread.Sleep(400);
+            //System.Threading.Thread.Sleep(400);
         }
 
         private void TXT_terminal_KeyPress(object sender, KeyPressEventArgs e)
@@ -615,6 +615,8 @@ namespace MissionPlanner.GCSViews
             if (CMB_boardtype.Text.Contains("APM"))
                 start_Terminal(false);
             if (CMB_boardtype.Text.Contains("PX4"))
+                start_Terminal(true);
+            if (CMB_boardtype.Text.Contains("VRX"))
                 start_Terminal(true);
         }
 

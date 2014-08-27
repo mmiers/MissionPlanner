@@ -50,6 +50,9 @@ namespace MissionPlanner.Utilities
         {
             int pwmvalue =-1;
 
+            if (!MainV2.comPort.MAV.param.ContainsKey("RC" + yawchannel + "_MIN"))
+                return 0;
+
             switch (axis)
             {
                 case GimbalPoint.axis.roll:
@@ -96,6 +99,15 @@ namespace MissionPlanner.Utilities
         {
             //MainV2.comPort.GetMountStatus();
 
+            yawchannel =  (int)(float)MainV2.comPort.MAV.param["MNT_RC_IN_PAN"];
+
+            pitchchannel = (int)(float)MainV2.comPort.MAV.param["MNT_RC_IN_TILT"];
+
+            rollchannel = (int)(float)MainV2.comPort.MAV.param["MNT_RC_IN_ROLL"];
+
+            if (!MainV2.comPort.BaseStream.IsOpen)
+                return PointLatLngAlt.Zero;
+
             PointLatLngAlt currentlocation = new PointLatLngAlt(MainV2.comPort.MAV.cs.lat, MainV2.comPort.MAV.cs.lng);
 
             double yawangle = MainV2.comPort.MAV.cs.campointc * 0.01f;
@@ -114,7 +126,7 @@ namespace MissionPlanner.Utilities
             if (dist > 9999)
                 return PointLatLngAlt.Zero;
 
-            Console.WriteLine("pitch " + pitchangle.ToString("0.000") + " yaw " + yawangle.ToString("0.000") + " dist" + dist.ToString("0.000"));
+            //Console.WriteLine("pitch " + pitchangle.ToString("0.000") + " yaw " + yawangle.ToString("0.000") + " dist" + dist.ToString("0.000"));
 
             PointLatLngAlt newpos = currentlocation.newpos( yawangle + MainV2.comPort.MAV.cs.yaw, dist);
 

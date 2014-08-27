@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using log4net;
+using System.Threading;
 
 namespace MissionPlanner.Utilities
 {
@@ -25,29 +26,43 @@ namespace MissionPlanner.Utilities
         /// </summary>
         public static event EventHandler UpdatePlanePosition;
 
-        static bool run = true;
+        static bool run = false;
+        static Thread thisthread;
 
         public static string server = "";
-        public static int serverport = 0;
+        public static int serverport = 0;  
 
         public adsb()
         {
-            System.Threading.ThreadPool.QueueUserWorkItem(TryConnect);
+            log.Info("adsb ctor");
+
+            thisthread = new Thread(TryConnect);
+
+            thisthread.Name = "ADSB reader thread";
+
+            thisthread.IsBackground = true;
+
+            thisthread.Start();
         }
 
         public static void Stop()
         {
+            log.Info("adsb stop");
             run = false;
+
+            if (thisthread != null)
+            {
+                thisthread.Abort();
+                thisthread.Join();
+                thisthread = null;
+            }
+
+            log.Info("adsb stopped");
         }
 
-        void TryConnect(object obj)
+        void TryConnect()
         {
-            try
-            {
-                System.Threading.Thread.CurrentThread.Name = "ADSB Reader";
-            }
-            catch { }
-            System.Threading.Thread.CurrentThread.IsBackground = true;
+            run = true;
 
             while (run)
             {
@@ -139,6 +154,8 @@ namespace MissionPlanner.Utilities
                 GC.Collect();
                 System.Threading.Thread.Sleep(5000);
             }
+
+            log.Info("adsb thread exit");
         }
 
         static Hashtable Planes = new Hashtable();
@@ -587,7 +604,7 @@ namespace MissionPlanner.Utilities
 
             //st.ReadTimeout = 5000;
 
-            while (true)
+            while (run)
             {
                 int by = st1.ReadByte();
                 if (by == -1)

@@ -26,6 +26,7 @@ namespace MissionPlanner
         public ICommsSerial BaseStream { get; set; }
 
         public ICommsSerial MirrorStream { get; set; }
+        public bool MirrorStreamWrite { get; set; }
 
         public event EventHandler ParamListChanged;
 
@@ -33,7 +34,7 @@ namespace MissionPlanner
         /// used to prevent comport access for exclusive use
         /// </summary>
         public bool giveComport { get { return _giveComport; } set { _giveComport = value; } }
-        bool _giveComport = false;
+        volatile bool _giveComport = false;
 
         public Dictionary<string, MAV_PARAM_TYPE> param_types = new Dictionary<string, MAV_PARAM_TYPE>();
 
@@ -41,6 +42,8 @@ namespace MissionPlanner
         string buildplaintxtline = "";
 
         public bool ReadOnly = false;
+
+        public TerrainFollow Terrain;
 
         public event ProgressEventHandler Progress;
 
@@ -68,7 +71,9 @@ namespace MissionPlanner
             // px4+ only
             public string SoftwareVersions { get; set; }
             // px4+ only
-            public string SerialString { get; set; }
+            public string SerialString            {                get;                set;            }
+
+            public string Guid { get; set; }
             /// <summary>
             /// the static global state of the currently connected MAV
             /// </summary>
@@ -328,6 +333,8 @@ namespace MissionPlanner
             MAV.VersionString = "";
             MAV.SoftwareVersions = "";
             MAV.SerialString = "";
+
+            Terrain = new TerrainFollow();
 
             bool hbseen = false;
 
@@ -749,7 +756,7 @@ Please check the following
 
                         if (st != paramname)
                         {
-                            log.InfoFormat("MAVLINK bad param responce - {0} vs {1}", paramname, st);
+                            log.InfoFormat("MAVLINK bad param response - {0} vs {1}", paramname, st);
                             continue;
                         }
 
@@ -1282,6 +1289,11 @@ Please check the following
             return doCommand(MAV_CMD.COMPONENT_ARM_DISARM, armit ? 1 : 0, 0, 0, 0, 0, 0, 0);
         }
 
+        public bool doMotorTest(int motor, MAVLink.MOTOR_TEST_THROTTLE_TYPE thr_type, int throttle, int timeout)
+        {
+            return MainV2.comPort.doCommand(MAVLink.MAV_CMD.DO_MOTOR_TEST, (float)motor, (float)(byte)thr_type, (float)throttle, (float)timeout, 0, 0, 0);
+        }
+
         public bool doCommand(MAV_CMD actionid, float p1, float p2, float p3, float p4, float p5, float p6, float p7)
         {
 
@@ -1644,6 +1656,9 @@ Please check the following
         /// <returns>WP</returns>
         public Locationwp getWP(ushort index)
         {
+            while (giveComport)
+                System.Threading.Thread.Sleep(100);
+
             giveComport = true;
             Locationwp loc = new Locationwp();
             mavlink_mission_request_t req = new mavlink_mission_request_t();
@@ -1690,7 +1705,7 @@ Please check the following
 
                         var wp = buffer.ByteArrayToStructure<mavlink_mission_item_t>(6);
 
-                        loc.options = (byte)(wp.frame & 0x1);
+                        loc.options = (byte)(wp.frame);
                         loc.id = (byte)(wp.command);
                         loc.p1 = (wp.param1);
                         loc.p2 = (wp.param2);
@@ -1773,17 +1788,46 @@ Please check the following
                             if (field.FieldType.IsArray)
                             {
                                 textoutput = textoutput + field.Name + delimeter;
-                                byte[] crap = (byte[])fieldValue;
-                                foreach (byte fiel in crap)
+                                if (fieldValue.GetType() == typeof(byte[]))
                                 {
-                                    if (fiel == 0)
+
+                                    try
                                     {
-                                        break;
+                                        byte[] crap = (byte[])fieldValue;
+
+                                        foreach (byte fiel in crap)
+                                        {
+                                            if (fiel == 0)
+                                            {
+                                                break;
+                                            }
+                                            else
+                                            {
+                                                textoutput = textoutput + (char)fiel;
+                                            }
+                                        }
                                     }
-                                    else
+                                    catch { }
+                                }
+                                if (fieldValue.GetType() == typeof(short[]))
+                                {
+                                    try
                                     {
-                                        textoutput = textoutput + (char)fiel;
+                                        short[] crap = (short[])fieldValue;
+
+                                        foreach (short fiel in crap)
+                                        {
+                                            if (fiel == 0)
+                                            {
+                                                break;
+                                            }
+                                            else
+                                            {
+                                                textoutput = textoutput + Convert.ToString(fiel, 16) +"|";
+                                            }
+                                        }
                                     }
+                                    catch { }
                                 }
                                 textoutput = textoutput + delimeter;
                             }
@@ -2076,7 +2120,7 @@ Please check the following
             {
                 gotohere.id = (byte)MAV_CMD.WAYPOINT;
 
-                int fixme;
+                int fixme_guidedfollowme;
                 // fix for followme change
                 if (MAV.cs.mode.ToUpper() != "GUIDED")
                     setMode("GUIDED");
@@ -2268,7 +2312,7 @@ Please check the following
                                 if (DateTime.Now > to)
                                 {
                                     log.InfoFormat("MAVLINK: 1 wait time out btr {0} len {1}", BaseStream.BytesToRead, length);
-                                    throw new Exception("Timeout");
+                                    throw new TimeoutException("Timeout");
                                 }
                                 System.Threading.Thread.Sleep(1);
                                 //Console.WriteLine(DateTime.Now.Millisecond + " SR0b " + BaseStream.BytesToRead);
@@ -2624,7 +2668,8 @@ Please check the following
 
                                 int len = MirrorStream.Read(buf, 0, buf.Length);
 
-                                BaseStream.Write(buf, 0, len);
+                                if (MirrorStreamWrite)
+                                    BaseStream.Write(buf, 0, len);
                             }
                         }
                     }
@@ -3232,6 +3277,21 @@ Please check the following
             return false;
         }
 
+        public enum sensoroffsetsenum
+        {
+            gyro = 0,
+            accelerometer=1,
+            magnetometer=2,
+            barometer=3,
+            optical_flow=4,
+            second_magnetometer=5
+        }
+
+        public bool SetSensorOffsets(sensoroffsetsenum sensor, float x, float y, float z)
+        {
+            return doCommand(MAV_CMD.PREFLIGHT_SET_SENSOR_OFFSETS,(int)sensor,x,y,z,0,0,0);
+        }
+
         byte[] readlogPacket()
         {
             byte[] temp = new byte[300];
@@ -3411,6 +3471,9 @@ Please check the following
                         case MAVLink.MAV_TYPE.GROUND_ROVER:
                             MAV.cs.firmware = MainV2.Firmwares.ArduRover;
                             break;
+                        case MAV_TYPE.ANTENNA_TRACKER:
+                            MAV.cs.firmware = MainV2.Firmwares.ArduTracker;
+                            break;
                         default:
                             break;
                     }
@@ -3430,6 +3493,19 @@ Please check the following
                             MAV.cs.firmware = MainV2.Firmwares.Ateryx;
                             break;
                     }
+                    break;
+            }
+
+            switch (MAV.cs.firmware)
+            {
+                case MainV2.Firmwares.ArduCopter2:
+                    MAV.Guid = MainV2.config["copter_guid"].ToString();
+                    break;
+                case MainV2.Firmwares.ArduPlane:
+                    MAV.Guid = MainV2.config["plane_guid"].ToString();
+                    break;
+                case MainV2.Firmwares.ArduRover:
+                    MAV.Guid = MainV2.config["rover_guid"].ToString();
                     break;
             }
         }
