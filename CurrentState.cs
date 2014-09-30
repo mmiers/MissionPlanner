@@ -79,6 +79,22 @@ namespace MissionPlanner
         [DisplayText("Sat Count")]
         public float satcount { get; set; }
 
+        public double lat2 { get; set; }
+
+        public double lng2 { get; set; }
+
+        public float altasl2 { get; set; }
+
+        public float gpsstatus2 { get; set; }
+
+        public float gpshdop2 { get; set; }
+
+        public float satcount2 { get; set; }
+
+        public float groundspeed2 { get; set; }
+
+        public float groundcourse2 { get; set; }
+
         public float altd1000 { get { return (alt / 1000) % 10; } }
         public float altd100 { get { return (alt / 100) % 10; } }
 
@@ -275,6 +291,13 @@ namespace MissionPlanner
         private DateTime _lastcurrent = DateTime.MinValue;
         [DisplayText("Bat used EST (mah)")]
         public float battery_usedmah { get; set; }
+
+        [DisplayText("Bat2 Voltage (V)")]
+        public float battery_voltage2 { get { return _battery_voltage2; } set { if (_battery_voltage2 == 0) _battery_voltage2 = value; _battery_voltage2 = value * 0.1f + _battery_voltage2 * 0.9f; } }
+        private float _battery_voltage2;
+        [DisplayText("Bat2 Current (Amps)")]
+        public float current2 { get { return _current2; } set { if (value < 0) return; _current2 = value; } }
+        private float _current2;
 
         public float HomeAlt { get { return (float)HomeLocation.Alt; } set { } }
         public PointLatLngAlt HomeLocation = new PointLatLngAlt();
@@ -842,7 +865,7 @@ namespace MissionPlanner
                             messageHigh = "Bad/No Terrain Data";
                             messageHighTime = DateTime.Now;
                         }
-                        else if (sensors_health.geofence == sensors_enabled.geofence && sensors_present.geofence)
+                        else if (sensors_health.geofence != sensors_enabled.geofence && sensors_present.geofence)
                         {
                             messageHigh = "Geofence Breach";
                             messageHighTime = DateTime.Now;
@@ -861,6 +884,14 @@ namespace MissionPlanner
                         
 
                         mavinterface.MAV.packets[(byte)MAVLink.MAVLINK_MSG_ID.SYS_STATUS] = null;
+                    }
+                    
+                    bytearray = mavinterface.MAV.packets[(byte)MAVLink.MAVLINK_MSG_ID.BATTERY2];
+                    if (bytearray != null)
+                    {
+                        var bat = bytearray.ByteArrayToStructure<MAVLink.mavlink_battery2_t>(6);
+                        _battery_voltage2 = bat.voltage;
+                        current2 = bat.current_battery;
                     }
 
                     bytearray = mavinterface.MAV.packets[(byte)MAVLink.MAVLINK_MSG_ID.SCALED_PRESSURE];
@@ -926,8 +957,8 @@ namespace MissionPlanner
 
                         if (!useLocation)
                         {
-                            lat = gps.lat * 1.0e-7f;
-                            lng = gps.lon * 1.0e-7f;
+                            lat = gps.lat * 1.0e-7;
+                            lng = gps.lon * 1.0e-7;
 
                             altasl = gps.alt / 1000.0f;
                            // alt = gps.alt; // using vfr as includes baro calc
@@ -951,8 +982,8 @@ namespace MissionPlanner
                     {
                         var gps = bytearray.ByteArrayToStructure<MAVLink.mavlink_gps2_raw_t>(6);
 
-                        lat2 = gps.lat * 1.0e-7f;
-                        lng2 = gps.lon * 1.0e-7f;
+                        lat2 = gps.lat * 1.0e-7;
+                        lng2 = gps.lon * 1.0e-7;
                         altasl2 = gps.alt / 1000.0f;
 
                         gpsstatus2 = gps.fix_type;
@@ -1014,8 +1045,8 @@ namespace MissionPlanner
                         }
                         else
                         {
-                            lat = loc.lat / 10000000.0f;
-                            lng = loc.lon / 10000000.0f;
+                            lat = loc.lat / 10000000.0;
+                            lng = loc.lon / 10000000.0;
 
                             altasl = loc.alt / 1000.0f;
                         }
@@ -1326,32 +1357,18 @@ namespace MissionPlanner
         public float gimballat { get { if (GimbalPoint == null) return 0; return (float)GimbalPoint.Lat; } }
         public float gimballng { get { if (GimbalPoint == null) return 0; return (float)GimbalPoint.Lng; } }
 
-        public float lat2 { get; set; }
-
-        public float lng2 { get; set; }
-
-        public float altasl2 { get; set; }
-
-        public byte gpsstatus2 { get; set; }
-
-        public float gpshdop2 { get; set; }
-
-        public byte satcount2 { get; set; }
-
-        public float groundspeed2 { get; set; }
-
-        public float groundcourse2 { get; set; }
 
         public bool landed { get; set; }
 
-        public float ter_curalt { get; set; }
+        float _ter_curalt;
+        public float ter_curalt { get { return _ter_curalt * multiplierdist; } set { _ter_curalt = value; } }
+        float _ter_alt;
+        public float ter_alt { get { return _ter_alt * multiplierdist; } set { _ter_alt = value; } }
 
-        public float ter_alt { get; set; }
+        public float ter_load { get; set; }
 
-        public ushort ter_load { get; set; }
+        public float ter_pend { get; set; }
 
-        public ushort ter_pend { get; set; }
-
-        public ushort ter_space { get; set; }
+        public float ter_space { get; set; }
     }
 }

@@ -64,6 +64,7 @@ namespace MissionPlanner
                 this.VersionString = "";
                 this.SoftwareVersions = "";
                 this.SerialString = "";
+                this.FrameString = "";
             }
 
             // all
@@ -71,7 +72,9 @@ namespace MissionPlanner
             // px4+ only
             public string SoftwareVersions { get; set; }
             // px4+ only
-            public string SerialString            {                get;                set;            }
+            public string SerialString { get; set; }
+            // AC frame type
+            public string FrameString { get; set; }
 
             public string Guid { get; set; }
             /// <summary>
@@ -333,6 +336,7 @@ namespace MissionPlanner
             MAV.VersionString = "";
             MAV.SoftwareVersions = "";
             MAV.SerialString = "";
+            MAV.FrameString = "";
 
             Terrain = new TerrainFollow();
 
@@ -364,8 +368,6 @@ namespace MissionPlanner
                 countDown.Elapsed += (sender, e) =>
                 {
                     int secondsRemaining = (deadline - e.SignalTime).Seconds;
-                    //if (Progress != null)
-                    //    Progress(-1, string.Format("Trying to connect.\nTimeout in {0}", secondsRemaining));
                     frmProgressReporter.UpdateProgressAndStatus(-1, string.Format("Trying to connect.\nTimeout in {0}", secondsRemaining));
                     if (secondsRemaining > 0) countDown.Start();
                 };
@@ -384,9 +386,6 @@ namespace MissionPlanner
                         giveComport = false;
                         return;
                     }
-
-                    // incase we are in setup mode
-                    //BaseStream.WriteLine("planner\rgcs\r");
 
                     log.Info(DateTime.Now.Millisecond + " Start connect loop ");
 
@@ -416,16 +415,10 @@ Please check the following
 
                     System.Threading.Thread.Sleep(1);
 
-                    // incase we are in setup mode
-                    //BaseStream.WriteLine("planner\rgcs\r");
-
                     // can see 2 heartbeat packets at any time, and will connect - was one after the other
 
                     if (buffer.Length == 0)
                         buffer = getHeartBeat();
-
-                    // incase we are in setup mode
-                    //BaseStream.WriteLine("planner\rgcs\r");
 
                     System.Threading.Thread.Sleep(1);
 
@@ -438,27 +431,37 @@ Please check the following
 
                     count++;
 
+                    // 2 hbs that match
                     if (buffer.Length > 5 && buffer1.Length > 5 && buffer[3] == buffer1[3] && buffer[4] == buffer1[4])
                     {
                         mavlink_heartbeat_t hb = buffer.ByteArrayToStructure<mavlink_heartbeat_t>(6);
 
                         if (hb.type != (byte)MAVLink.MAV_TYPE.GCS)
                         {
-
-                            mavlinkversion = hb.mavlink_version;
-                            MAV.aptype = (MAV_TYPE)hb.type;
-                            MAV.apname = (MAV_AUTOPILOT)hb.autopilot;
-
-                            setAPType();
-
-                            MAV.sysid = buffer[3];
-                            MAV.compid = buffer[4];
-                            MAV.recvpacketcount = buffer[2];
-                            log.InfoFormat("ID sys {0} comp {1} ver{2}", MAV.sysid, MAV.compid, mavlinkversion);
+                            SetupMavConnect(buffer[3],buffer[4], buffer[2], hb); 
                             break;
                         }
                     }
 
+                    // 2 hb's that dont match. more than one sysid here
+                    if (buffer.Length > 5 && buffer1.Length > 5 && (buffer[3] != buffer1[3] || buffer[4] != buffer1[4]))
+                    {
+                        mavlink_heartbeat_t hb = buffer.ByteArrayToStructure<mavlink_heartbeat_t>(6);
+
+                        if (hb.type != (byte)MAVLink.MAV_TYPE.ANTENNA_TRACKER && hb.type != (byte)MAVLink.MAV_TYPE.GCS)
+                        {
+                            SetupMavConnect(buffer[3], buffer[4], buffer[2], hb);
+                            break;
+                        }
+
+                        hb = buffer1.ByteArrayToStructure<mavlink_heartbeat_t>(6);
+
+                        if (hb.type != (byte)MAVLink.MAV_TYPE.ANTENNA_TRACKER && hb.type != (byte)MAVLink.MAV_TYPE.GCS)
+                        {
+                            SetupMavConnect(buffer1[3], buffer1[4], buffer1[2], hb);
+                            break;
+                        }
+                    }
                 }
 
                 countDown.Stop();
@@ -497,6 +500,20 @@ Please check the following
             log.Info("Done open " + MAV.sysid + " " + MAV.compid);
             packetslost = 0;
             synclost = 0;
+        }
+
+        void SetupMavConnect(byte sysid, byte compid,byte mgsno, mavlink_heartbeat_t hb)
+        {
+            mavlinkversion = hb.mavlink_version;
+            MAV.aptype = (MAV_TYPE)hb.type;
+            MAV.apname = (MAV_AUTOPILOT)hb.autopilot;
+
+            setAPType();
+
+            MAV.sysid = sysid;
+            MAV.compid = compid;
+            MAV.recvpacketcount = mgsno;
+            log.InfoFormat("ID sys {0} comp {1} ver{2}", MAV.sysid, MAV.compid, mavlinkversion);
         }
 
         public byte[] getHeartBeat()
@@ -1000,6 +1017,10 @@ Please check the following
                         else if (logdata.ToLower().Contains("px4v2"))
                         {
                             MAV.SerialString = logdata;
+                        }
+                        else if (logdata.ToLower().Contains("frame"))
+                        {
+                            MAV.FrameString = logdata;
                         }
                     }
                     //stopwatch.Stop();
@@ -3240,7 +3261,7 @@ Please check the following
                 retry--;
             }
 
-            return false;
+            throw new Exception("Could not verify GeoFence Point");
         }
 
         public bool setRallyPoint(byte index, PointLatLngAlt plla,short break_alt, UInt16 land_dir_cd, byte flags, byte rallypointcount)

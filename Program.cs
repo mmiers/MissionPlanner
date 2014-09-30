@@ -48,8 +48,6 @@ namespace MissionPlanner
             System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
 
             ServicePointManager.DefaultConnectionLimit = 10;
-            ServicePointManager.Expect100Continue = true;
-            ServicePointManager.SecurityProtocol = SecurityProtocolType.Ssl3;
 
             System.Windows.Forms.Application.ThreadException += Application_ThreadException;
 
@@ -105,7 +103,7 @@ namespace MissionPlanner
                 System.Configuration.ConfigurationManager.AppSettings["UpdateLocationVersion"] = "";
             }
 
-            Remove();
+            CleanupFiles();
 
             //fontgen.dowork();
 
@@ -221,7 +219,7 @@ namespace MissionPlanner
             }
         }
 
-        static void Remove()
+        static void CleanupFiles()
         {
             //cleanup bad file
             string file = Application.StartupPath + Path.DirectorySeparatorChar + @"LogAnalyzer\tests\TestUnderpowered.py";

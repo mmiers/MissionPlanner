@@ -347,6 +347,8 @@ namespace MissionPlanner.GCSViews
                 {
                     fieldValue = field.GetValue(thisBoxed, null); // Get value
 
+                    if (fieldValue == null)
+                        continue;
                     // Get the TypeCode enumeration. Multiple types get mapped to a common typecode.
                     typeCode = Type.GetTypeCode(fieldValue.GetType());
 
@@ -854,6 +856,13 @@ namespace MissionPlanner.GCSViews
                         OpenGLtest.instance.LocationCenter = new PointLatLngAlt(MainV2.comPort.MAV.cs.lat, MainV2.comPort.MAV.cs.lng, MainV2.comPort.MAV.cs.alt, "here");
                     }
 
+                    // update opengltest2
+                    if (OpenGLtest2.instance != null)
+                    {
+                        OpenGLtest2.instance.rpy = new OpenTK.Vector3(MainV2.comPort.MAV.cs.roll, MainV2.comPort.MAV.cs.pitch, MainV2.comPort.MAV.cs.yaw);
+                        OpenGLtest2.instance.LocationCenter = new PointLatLngAlt(MainV2.comPort.MAV.cs.lat, MainV2.comPort.MAV.cs.lng, MainV2.comPort.MAV.cs.alt, "here");
+                    }
+
                     // update vario info
                     MissionPlanner.Utilities.Vario.SetValue(MainV2.comPort.MAV.cs.climbrate);
 
@@ -1074,20 +1083,22 @@ namespace MissionPlanner.GCSViews
                             routes.Markers.Add(new GMarkerGoogle(currentloc, GMarkerGoogleType.blue_dot) { Position = MainV2.comPort.MAV.cs.MovingBase, ToolTipText = "Moving Base", ToolTipMode = MarkerTooltipMode.OnMouseOver });
                         }
 
-
                         // for testing
                         try
                         {
                             if (MainV2.comPort.MAV.param.ContainsKey("MNT_STAB_PAN") &&
-                                (float)MainV2.comPort.MAV.param["MNT_STAB_PAN"] == 1 &&
+                               // (float)MainV2.comPort.MAV.param["MNT_STAB_PAN"] == 1 &&
                                 (float)MainV2.comPort.MAV.param["MNT_STAB_TILT"] == 1 &&
                                 (float)MainV2.comPort.MAV.param["MNT_STAB_ROLL"] == 0)
                             {
                                 var marker = MissionPlanner.Utilities.GimbalPoint.ProjectPoint();
 
-                                MainV2.comPort.MAV.cs.GimbalPoint = marker;
+                                if (marker != PointLatLngAlt.Zero)
+                                {
+                                    MainV2.comPort.MAV.cs.GimbalPoint = marker;
 
-                                routes.Markers.Add(new GMarkerGoogle(marker, GMarkerGoogleType.blue_dot) { ToolTipText = "Camera Target\n" + marker.ToString(), ToolTipMode = MarkerTooltipMode.OnMouseOver });
+                                    routes.Markers.Add(new GMarkerGoogle(marker, GMarkerGoogleType.blue_dot) { ToolTipText = "Camera Target\n" + marker.ToString(), ToolTipMode = MarkerTooltipMode.OnMouseOver });
+                                }
                             }
                         }
                         catch { }
@@ -1115,9 +1126,9 @@ namespace MissionPlanner.GCSViews
                         gMapControl1.HoldInvalidation = false;
 
                         gMapControl1.Invalidate();
-                    }
 
-                    tracklast = DateTime.Now;
+                        tracklast = DateTime.Now;
+                    }  
                 }
                 catch (Exception ex) { log.Error(ex); Console.WriteLine("FD Main loop exception " + ex.ToString()); }
             }
@@ -2231,7 +2242,7 @@ namespace MissionPlanner.GCSViews
             {
                 Name = "select",
                 Width = 50,
-                Height = 250,
+                Height = 410,
                 Text = "Display This"
             };
 
@@ -2250,6 +2261,8 @@ namespace MissionPlanner.GCSViews
                 {
                     fieldValue = field.GetValue(thisBoxed, null); // Get value
 
+                    if (fieldValue == null)
+                        continue;
 
                     // Get the TypeCode enumeration. Multiple types get mapped to a common typecode.
                     typeCode = Type.GetTypeCode(fieldValue.GetType());
@@ -2538,6 +2551,8 @@ namespace MissionPlanner.GCSViews
         private void CHK_autopan_CheckedChanged(object sender, EventArgs e)
         {
             MainV2.config["CHK_autopan"] = CHK_autopan.Checked.ToString();
+
+            GCSViews.FlightPlanner.instance.autopan = CHK_autopan.Checked;
         }
 
         private void setMJPEGSourceToolStripMenuItem_Click(object sender, EventArgs e)
@@ -3022,8 +3037,6 @@ namespace MissionPlanner.GCSViews
 
             if (File.Exists(ofd.FileName))
             {
-                var log = BinaryLog.ReadLog(ofd.FileName);
-
                 SaveFileDialog sfd = new SaveFileDialog();
                 sfd.Filter = "log|*.log";
                 sfd.FileName = Path.GetFileNameWithoutExtension(ofd.FileName) + ".log";
@@ -3032,12 +3045,7 @@ namespace MissionPlanner.GCSViews
 
                 if (res == System.Windows.Forms.DialogResult.OK)
                 {
-                    StreamWriter sw = new StreamWriter(sfd.OpenFile());
-                    foreach (string line in log)
-                    {
-                        sw.Write(line);
-                    }
-                    sw.Close();
+                    BinaryLog.ConvertBin(ofd.FileName,sfd.FileName);
                 }
             }
         }
@@ -3066,14 +3074,10 @@ namespace MissionPlanner.GCSViews
 
                         if (logfile.ToLower().EndsWith(".bin"))
                         {
-                            var ms = new MemoryStream();
-                            var lines = BinaryLog.ReadLog(logfile);
-                            foreach (var line in lines)
-                            {
-                                ms.Write(ASCIIEncoding.ASCII.GetBytes(line), 0, line.Length);
-                            }
-                            ms.Seek(0, SeekOrigin.Begin);
-                            tr = new StreamReader(ms);
+                            string tempfile = Path.GetTempFileName();
+                            BinaryLog.ConvertBin(logfile, tempfile);
+
+                            tr = new StreamReader(tempfile);
                         }
                         else
                         {
@@ -3132,17 +3136,9 @@ namespace MissionPlanner.GCSViews
 
                 if (ofd.FileName.ToLower().EndsWith(".bin"))
                 {
-                    var log = MissionPlanner.Log.BinaryLog.ReadLog(ofd.FileName);
-
                     newlogfile = Path.GetTempFileName() + ".log";
 
-                    using (StreamWriter sw = new StreamWriter(newlogfile))
-                    {
-                        foreach (string line in log)
-                        {
-                            sw.Write(line);
-                        }
-                    }
+                    BinaryLog.ConvertBin(ofd.FileName, newlogfile);
 
                     ofd.FileName = newlogfile;
                 }

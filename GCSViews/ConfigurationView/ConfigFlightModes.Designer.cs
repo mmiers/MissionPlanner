@@ -67,6 +67,7 @@
             this.chk_ss2 = new System.Windows.Forms.CheckBox();
             this.chk_ss1 = new System.Windows.Forms.CheckBox();
             this.tableLayoutPanel1 = new System.Windows.Forms.TableLayoutPanel();
+            this.linkLabel1_ss = new System.Windows.Forms.LinkLabel();
             ((System.ComponentModel.ISupportInitialize)(this.currentStateBindingSource)).BeginInit();
             this.tableLayoutPanel1.SuspendLayout();
             this.SuspendLayout();
@@ -175,6 +176,7 @@
             this.CMB_fmode6.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.CMB_fmode6.FormattingEnabled = true;
             this.CMB_fmode6.Name = "CMB_fmode6";
+            this.CMB_fmode6.SelectedIndexChanged += new System.EventHandler(this.flightmode_SelectedIndexChanged);
             // 
             // labelfm5
             // 
@@ -189,6 +191,7 @@
             this.CMB_fmode5.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.CMB_fmode5.FormattingEnabled = true;
             this.CMB_fmode5.Name = "CMB_fmode5";
+            this.CMB_fmode5.SelectedIndexChanged += new System.EventHandler(this.flightmode_SelectedIndexChanged);
             // 
             // labelfm4
             // 
@@ -203,6 +206,7 @@
             this.CMB_fmode4.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.CMB_fmode4.FormattingEnabled = true;
             this.CMB_fmode4.Name = "CMB_fmode4";
+            this.CMB_fmode4.SelectedIndexChanged += new System.EventHandler(this.flightmode_SelectedIndexChanged);
             // 
             // labelfm3
             // 
@@ -217,6 +221,7 @@
             this.CMB_fmode3.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.CMB_fmode3.FormattingEnabled = true;
             this.CMB_fmode3.Name = "CMB_fmode3";
+            this.CMB_fmode3.SelectedIndexChanged += new System.EventHandler(this.flightmode_SelectedIndexChanged);
             // 
             // labelfm2
             // 
@@ -231,6 +236,7 @@
             this.CMB_fmode2.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.CMB_fmode2.FormattingEnabled = true;
             this.CMB_fmode2.Name = "CMB_fmode2";
+            this.CMB_fmode2.SelectedIndexChanged += new System.EventHandler(this.flightmode_SelectedIndexChanged);
             // 
             // labelfm1
             // 
@@ -245,6 +251,7 @@
             this.CMB_fmode1.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.CMB_fmode1.FormattingEnabled = true;
             this.CMB_fmode1.Name = "CMB_fmode1";
+            this.CMB_fmode1.SelectedIndexChanged += new System.EventHandler(this.flightmode_SelectedIndexChanged);
             // 
             // BUT_SaveModes
             // 
@@ -322,8 +329,16 @@
             this.tableLayoutPanel1.Controls.Add(this.BUT_SaveModes, 1, 6);
             this.tableLayoutPanel1.Controls.Add(this.CB_simple1, 2, 0);
             this.tableLayoutPanel1.Controls.Add(this.CB_simple6, 2, 5);
+            this.tableLayoutPanel1.Controls.Add(this.linkLabel1_ss, 3, 6);
             resources.ApplyResources(this.tableLayoutPanel1, "tableLayoutPanel1");
             this.tableLayoutPanel1.Name = "tableLayoutPanel1";
+            // 
+            // linkLabel1_ss
+            // 
+            resources.ApplyResources(this.linkLabel1_ss, "linkLabel1_ss");
+            this.linkLabel1_ss.Name = "linkLabel1_ss";
+            this.linkLabel1_ss.TabStop = true;
+            this.linkLabel1_ss.LinkClicked += new System.Windows.Forms.LinkLabelLinkClickedEventHandler(this.linkLabel1_ss_LinkClicked);
             // 
             // ConfigFlightModes
             // 
@@ -382,5 +397,6 @@
         private System.Windows.Forms.CheckBox chk_ss2;
         private System.Windows.Forms.CheckBox chk_ss1;
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel1;
+        private System.Windows.Forms.LinkLabel linkLabel1_ss;
     }
 }

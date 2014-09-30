@@ -88,7 +88,9 @@ namespace MissionPlanner.Joystick
             Disarm,
             Digicam_Control,
             TakeOff,
-            Mount_Mode
+            Mount_Mode,
+            Toggle_Pan_Stab,
+            Gimbal_pnt_track
        //     Mount_Control
         }
 
@@ -572,12 +574,60 @@ namespace MissionPlanner.Joystick
                     if (getJoystickAxis(8) != Joystick.joystickaxis.None)
                         MainV2.comPort.MAV.cs.rcoverridech8 = pickchannel(8, JoyChannels[8].axis, JoyChannels[8].reverse, JoyChannels[8].expo);
 
-                    DoJoystickButtonFunction();
+                    // disable button actions when not connected.
+                    if (MainV2.comPort.BaseStream.IsOpen)
+                        DoJoystickButtonFunction();
 
                     //Console.WriteLine("{0} {1} {2} {3}", MainV2.comPort.MAV.cs.rcoverridech1, MainV2.comPort.MAV.cs.rcoverridech2, MainV2.comPort.MAV.cs.rcoverridech3, MainV2.comPort.MAV.cs.rcoverridech4);
                 }
+                catch (InputLostException ex)
+                {
+                    clearRCOverride();
+                    MainV2.instance.Invoke((System.Action)
+                    delegate
+                    {
+                        CustomMessageBox.Show("Lost Joystick","Lost Joystick");
+                    });                    
+                    return;
+                }
                 catch (Exception ex) { log.Info("Joystick thread error " + ex.ToString()); } // so we cant fall out
             }
+        }
+
+        public void clearRCOverride()
+        {
+            // disable it, before continuing
+            this.enabled = false;
+
+            MAVLink.mavlink_rc_channels_override_t rc = new MAVLink.mavlink_rc_channels_override_t();
+
+            rc.target_component = MainV2.comPort.MAV.compid;
+            rc.target_system = MainV2.comPort.MAV.sysid;
+
+            rc.chan1_raw = 0;
+            rc.chan2_raw = 0;
+            rc.chan3_raw = 0;
+            rc.chan4_raw = 0;
+            rc.chan5_raw = 0;
+            rc.chan6_raw = 0;
+            rc.chan7_raw = 0;
+            rc.chan8_raw = 0;
+
+            MainV2.comPort.sendPacket(rc);
+            System.Threading.Thread.Sleep(20);
+            MainV2.comPort.sendPacket(rc);
+            System.Threading.Thread.Sleep(20);
+            MainV2.comPort.sendPacket(rc);
+            System.Threading.Thread.Sleep(20);
+            MainV2.comPort.sendPacket(rc);
+            System.Threading.Thread.Sleep(20);
+            MainV2.comPort.sendPacket(rc);
+            System.Threading.Thread.Sleep(20);
+            MainV2.comPort.sendPacket(rc);
+
+            MainV2.comPort.sendPacket(rc);
+            MainV2.comPort.sendPacket(rc);
+            MainV2.comPort.sendPacket(rc);
         }
 
         public void DoJoystickButtonFunction()
@@ -720,6 +770,28 @@ namespace MissionPlanner.Joystick
                                }
                                catch { CustomMessageBox.Show("Failed to DO_REPEAT_SERVO"); }
                            });
+                        break;
+                    case buttonfunction.Toggle_Pan_Stab:
+                        MainV2.instance.BeginInvoke((System.Windows.Forms.MethodInvoker)delegate()
+                          {
+                              try
+                              {
+                                  float current = (float)MainV2.comPort.MAV.param["MNT_STAB_PAN"];
+                                  float newvalue = (current > 0) ? 0 : 1;
+                                  MainV2.comPort.setParam("MNT_STAB_PAN", newvalue);
+                              }
+                              catch { CustomMessageBox.Show("Failed to Toggle_Pan_Stab"); }
+                          });
+                        break;
+                    case buttonfunction.Gimbal_pnt_track:
+                        MainV2.instance.BeginInvoke((System.Windows.Forms.MethodInvoker)delegate()
+                        {
+                            try
+                            {
+                                MainV2.comPort.doCommand(MAVLink.MAV_CMD.DO_SET_ROI, 0, 0, 0, 0, MainV2.comPort.MAV.cs.gimballat, MainV2.comPort.MAV.cs.gimballng, (float)MainV2.comPort.MAV.cs.GimbalPoint.Alt);
+                            }
+                            catch { CustomMessageBox.Show("Failed to Gimbal_pnt_track"); }
+                        });
                         break;
                 }
             }
@@ -1094,11 +1166,16 @@ namespace MissionPlanner.Joystick
             if (rev)
                 working *= -1;
 
+            // save for later
+            int raw = working;
+
+            working = (int)Expo(working, expo, min, max, trim);
+
+            /*
             // calc scale from actualy pwm range
             float scale = range / 1000.0f;
 
-            // save for later
-            int raw = working;
+            
 
 
             double B = 4 * (expo / 100.0);
@@ -1116,16 +1193,72 @@ namespace MissionPlanner.Joystick
 
             working = (int)(t_out * 1000);
 
+             
             if (expo == 0)
             {
                 working = (int)(raw) + trim;
-            }
+            }*/
 
             //add limits to movement
             working = Math.Max(min, working);
             working = Math.Min(max, working);
 
             return (ushort)working;
+        }
+
+        public static double Expo(double input, double expo, double min, double max, double mid)
+        {
+            // input range -500 to 500
+
+            double expomult = expo / 100.0;
+
+            if (input >= 0)
+            {
+                // linear scale
+                double linearpwm = map(input, 0, 500, mid, max);
+
+                double expomid = (max - mid) / 2;
+
+                double factor = 0;
+
+                // over half way though input
+                if (input > 250)
+                {
+                    factor = 250 - (input-250); 
+                }
+                else
+                {
+                    factor = input;
+                }
+
+                return linearpwm - (factor * expomult);
+            }
+            else
+            {
+                double linearpwm = map(input, -500, 0, min, mid);
+
+                double expomid = (mid - min) / 2;
+
+                double factor = 0;
+
+                // over half way though input
+                if (input < -250)
+                {
+                    factor = -250 - (input + 250); 
+                }
+                else
+                {
+                    factor = input;
+                }
+
+                return linearpwm - (factor * expomult);
+            }
+            
+        }
+
+        static double map(double x, double in_min, double in_max, double out_min, double out_max)
+        {
+            return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
         }
 
         double Constrain(double value, double min, double max)
